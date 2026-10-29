@@ -418,25 +418,33 @@ export function lambert(mu: number, r1: V3, r2: V3, dt: number, way: LambertWay 
     return Number.isFinite(t) && C > 0 ? t : Number.MAX_VALUE;
   };
   const zMax = 4 * Math.PI * Math.PI * (1 - 1e-7);
-  // The lower end: for A > 0, the z where y = 0 (TOF → 0 there); for A < 0, as far into the hyperbolic range as the
-  // arithmetic allows (TOF has a positive floor on the long way).
-  let zMin = -1e4;
+  /** The departure speed of the conic at z (for the refusal's wording). */
+  const lambertSpeedAt = (z: number): number => {
+    const yz = y(z);
+    const g = A * Math.sqrt(yz / mu);
+    return norm(sub(r2, scale(r1, 1 - yz / R1))) / Math.abs(g);
+  };
+  // The lower end. Short way (A > 0): the z where y = 0, where the time of flight falls to 0. Long way (A < 0): the time
+  // falls toward 0 only as z → −∞ (an ever faster hyperbola), so the bracket stops at the most negative z the
+  // arithmetic still resolves (cosh √−z overflows past z ≈ −5×10⁵, and the time loses its digits long before): a
+  // shorter time than the time there is refused by name rather than solved from noise.
+  let zMin: number;
   if (A > 0) {
-    if (y(zMin) > 0) {
-      zMin = -1e4; // y stays positive: TOF floor comes from the arithmetic bound
-    } else {
-      const r = guardedRoot(y, null, -1e4, 0, -1, 1e-15, 400);
-      if (!r) return { ok: false, error: "Lambert: the y(z) = 0 bound could not be located." };
-      zMin = r.x;
-    }
+    const r = y(-1e4) < 0 ? guardedRoot(y, null, -1e4, 0, -1, 1e-15, 400) : null;
+    if (!r) return { ok: false, error: "Lambert: the y(z) = 0 bound could not be located." };
+    zMin = r.x;
+  } else {
+    zMin = -1e4;
+    while (zMin < -1 && !(tof(zMin) > 0 && tof(zMin) < tof(zMin / 2))) zMin /= 2;
   }
   const tofParab = tof(0);
   const tLow = Math.max(0, tof(zMin));
-  if (dt <= tLow * (1 + 1e-12)) {
-    return { ok: false, error: `That time of flight (${dt.toPrecision(4)} s) is below the minimum for this geometry and direction (about ${tLow.toPrecision(4)} s): no single-revolution conic joins the two points that fast.` };
+  if (dt <= tLow * (1 + 1e-9)) {
+    const L1 = lambertSpeedAt(zMin);
+    return { ok: false, error: `That time of flight (${dt.toPrecision(4)} s) is below the shortest this solver resolves for the long way (about ${tLow.toPrecision(3)} s, already a departure speed near ${(L1 / 1000).toPrecision(3)} km/s): no meaningful conic joins the two points that fast. Lengthen the time or take the short way.` };
   }
   if (!(tof(zMax) > dt)) {
-    return { ok: false, error: "That time of flight is longer than a single revolution of any ellipse through the two points allows. Multi-revolution Lambert solutions are not offered: shorten the time or split the transfer." };
+    return { ok: false, error: "That time of flight needs a single-revolution ellipse so large that the arithmetic cannot resolve it. Multi-revolution Lambert solutions are not offered: shorten the time or split the transfer." };
   }
   const root = guardedRoot((z) => tof(z) - dt, null, zMin, zMax, 0, 1e-15, 400);
   if (!root) return { ok: false, error: "Lambert's equation did not converge for this geometry and time of flight." };
@@ -447,6 +455,12 @@ export function lambert(mu: number, r1: V3, r2: V3, dt: number, way: LambertWay 
   const gdot = 1 - yz / R2;
   const v1 = scale(sub(r2, scale(r1, f)), 1 / g);
   const v2 = scale(sub(scale(r2, gdot), r1), 1 / g);
+  // A time so short that the conic needs a sizeable fraction of light speed is not an answer: Newtonian two-body
+  // mechanics stops describing it, and nothing could fly it.
+  const vMax = Math.max(norm(v1), norm(v2));
+  if (vMax > 0.01 * 299792458) {
+    return { ok: false, error: `That time of flight (${dt.toPrecision(4)} s) is too short: the transfer would need ${(vMax / 1000).toPrecision(3)} km/s, above 1 % of the speed of light, outside Newtonian two-body mechanics and any propulsion. Lengthen the time.` };
+  }
   // Minimum-energy transfer: a_m = s/2, with the Lagrange time (Vallado Algorithm 56 / Bate §5.2).
   const c = norm(sub(r2, r1));
   const s = (R1 + R2 + c) / 2;

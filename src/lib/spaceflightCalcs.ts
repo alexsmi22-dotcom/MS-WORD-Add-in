@@ -426,7 +426,7 @@ const lambertCalc: SpaceCalc = {
       ["Periapsis altitude", km(tr.rp - body.radius)],
       ["Period", tr.period === null ? "none (open conic)" : dur(tr.period)],
     ];
-    lines.push(`Model: two-body, single revolution (multi-revolution solutions are not offered), impulsive burns. ${body.label} GM = ${sf(mu / 1e9, 9)} km³/s². Transfer times below the minimum for the long way, and 0° or 180° transfers, are refused by name.`);
+    lines.push(`Model: two-body, single revolution (multi-revolution solutions are not offered), impulsive burns. ${body.label} GM = ${sf(mu / 1e9, 9)} km³/s². Below the parabolic time the transfer is hyperbolic (solved, not refused); 0° and 180° transfers, and long-way times too short for the arithmetic to resolve, are refused by name.`);
     const outputs: EngOutput[] = [
       { key: "dv1", label: "Departure Δv", value: dv1 / 1000, unit: "km/s" },
       { key: "dv2", label: "Arrival Δv", value: dv2 / 1000, unit: "km/s" },
@@ -522,7 +522,7 @@ const interplanetaryCalc: SpaceCalc = {
     }
     const e1 = standishError(dep);
     const e2 = standishError(arr);
-    lines.push(`Model: the Hohmann figures assume circular coplanar planet orbits at the Standish J2000 semi-major axes (${sf(H.r1 / AU_M, 6)} and ${sf(H.r2 / AU_M, 6)} au), impulsive burns, and patched conics (the planets' gravity only inside their spheres of influence). The real orbits are eccentric and inclined, which is why the porkchop's best C3 differs from the Hohmann value. The porkchop uses prograde single-revolution Lambert transfers between positions from Standish's Table 1 (JPL, valid 1800 to 2050); its published accuracy over that interval is ${e1[0]}″ in longitude and ${e1[2]} thousand km in distance for ${dep === "earth" ? "the Earth–Moon barycentre" : Ld}, ${e2[0]}″ and ${e2[2]} thousand km for ${arr === "earth" ? "the Earth–Moon barycentre" : La}. Good enough to find a window; a mission design uses a full ephemeris (DE440) and a launch-vehicle C3 curve.`);
+    lines.push(`Model: the Hohmann figures assume circular coplanar planet orbits at the Standish J2000 semi-major axes (${sf(H.r1 / AU_M, 6)} and ${sf(H.r2 / AU_M, 6)} au), impulsive burns, and patched conics (the planets' gravity only inside their spheres of influence). The real orbits are eccentric and inclined, which is why the porkchop's best C3 differs from the Hohmann value. The porkchop uses prograde single-revolution Lambert transfers between positions from Standish's Table 1 (JPL, valid 1800 to 2050); its published accuracy over that interval is ${e1[0]}″ in longitude and ${e1[2]} thousand km in distance for ${dep === "earth" ? "the Earth–Moon barycentre" : Ld}, ${e2[0]}″ and ${e2[2]} thousand km for ${arr === "earth" ? "the Earth–Moon barycentre" : La}. Checked here against the DE421 ephemeris at five dates 1900 to 2050: within those figures for Mercury to Saturn, but Uranus and Neptune reached 82″ and 45″ in longitude (nominal 50″ and 10″) and Neptune 0.92 million km in distance (nominal 0.2 million), still under 0.03° in direction. A porkchop cell checked against DE421 positions agrees in C3 to within 1 %. Good enough to find a window; a mission design uses a full ephemeris (DE440) and a launch-vehicle C3 curve.`);
     if (pc.holes) lines.push(`${pc.holes} porkchop cells have no single-revolution prograde solution (or lie on the 180° ridge) and are left blank.`);
     const outputs: EngOutput[] = [
       { key: "tof", label: "Hohmann flight time", value: H.tofS / DAY_S, unit: "days" },

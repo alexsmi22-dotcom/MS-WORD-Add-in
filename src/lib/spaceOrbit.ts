@@ -121,7 +121,7 @@ export function keplerE(M: number, e: number): { E: number; iterations: number }
 }
 
 /** Hyperbolic: M = e sinh F − F, e > 1. */
-export function keplerH(M: number, e: number): { F: number; iterations: number } | OrbitFail {
+function keplerH(M: number, e: number): { F: number; iterations: number } | OrbitFail {
   if (!Number.isFinite(M) || !(e > 1)) return { ok: false, error: "Kepler's equation (hyperbolic) needs a finite mean anomaly and e > 1." };
   const s = Math.sign(M) || 1;
   const a = Math.abs(M);
@@ -138,18 +138,34 @@ export function keplerH(M: number, e: number): { F: number; iterations: number }
  * Parabolic (Barker's equation), solved exactly: Mp = D/2 + D³/6 with D = tan(ν/2), Mp = √(μ/p³)·(t − tp). The real
  * root of the depressed cubic D³ + 3D − 6Mp = 0 by Cardano: there is exactly one, so no iteration is needed.
  */
-export function barker(Mp: number): number {
+function barker(Mp: number): number {
   const q = 3 * Mp;
   const w = Math.cbrt(q + Math.sqrt(q * q + 1));
   return w - 1 / w;
 }
 
-/** True anomaly from the eccentric (or hyperbolic) anomaly. */
-export function nuFromE(E: number, e: number): number {
-  return 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
-}
-export function nuFromF(F: number, e: number): number {
-  return 2 * Math.atan(Math.sqrt((e + 1) / (e - 1)) * Math.tanh(F / 2));
+/**
+ * The true anomaly a time dt after true anomaly ν₀, by Kepler's equation in the form for the conic: M = E − e sin E
+ * (ellipse), M = e sinh F − F (hyperbola), Barker's cubic (parabola). An independent route to the universal-variable
+ * propagation: the elements calculator prints both, and their agreement.
+ */
+export function trueAnomalyAfter(mu: number, p: number, e: number, nu0: number, dt: number): { nu: number; anomaly: string } | OrbitFail {
+  const nuW = Math.atan2(Math.sin(nu0), Math.cos(nu0));
+  const t = timeSincePeriapsis(mu, p, e, nuW) + dt;
+  if (Math.abs(e - 1) < PARABOLIC_BAND) {
+    const D = barker(Math.sqrt(mu / (p * p * p)) * t);
+    return { nu: 2 * Math.atan(D), anomaly: `parabolic anomaly D = tan(ν/2) = ${D.toPrecision(6)}` };
+  }
+  if (e < 1) {
+    const a = p / (1 - e * e);
+    const k = keplerE(Math.sqrt(mu / (a * a * a)) * t, e);
+    if ("ok" in k) return k;
+    return { nu: 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(k.E / 2), Math.sqrt(1 - e) * Math.cos(k.E / 2)), anomaly: `eccentric anomaly E = ${((k.E * 180) / Math.PI).toFixed(4)}°` };
+  }
+  const a = p / (e * e - 1);
+  const k = keplerH(Math.sqrt(mu / (a * a * a)) * t, e);
+  if ("ok" in k) return k;
+  return { nu: 2 * Math.atan(Math.sqrt((e + 1) / (e - 1)) * Math.tanh(k.F / 2)), anomaly: `hyperbolic anomaly F = ${k.F.toPrecision(6)}` };
 }
 
 /**

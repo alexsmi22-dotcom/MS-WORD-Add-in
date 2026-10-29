@@ -12,7 +12,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { AU_M, DAY_S, GM_SI, R_EQ_SI, R_MEAN_SI, STANDISH_JD_MAX, STANDISH_JD_MIN, julianDate, isoFromJd, MSIS_RHO } from "../spaceConstants";
 import { BODIES } from "../orbital";
-import { barker, elementsToState, keplerE, keplerH, lambert, norm, propagate, stateToElements, sub, timeSincePeriapsis, type V3 } from "../spaceOrbit";
+import { elementsToState, keplerE, lambert, trueAnomalyAfter, norm, propagate, stateToElements, sub, timeSincePeriapsis, type V3 } from "../spaceOrbit";
 import {
   CRITICAL_INC, PAIRS, biellipticDvNorm, biellipticInfNorm, biellipticThresholds, combinedDv, geoRadius, hohmannDvNorm, interplanetaryHohmann, j2Rates,
   jacobi, lagrange, lunarMission, phasing, planeChangeDv, planetState, porkchop, repeatTracks, ssoInclination, standishError, hillRadius, soiRadius, rocheLimits, bodyDensity,
@@ -85,15 +85,22 @@ describe("elements and Kepler", () => {
     // Printed: r = (−4040, 4815, 3629) km, v = (−10.39, −4.772, 1.744) km/s.
     vnear(s.r, [-4040e3, 4815e3, 3629e3], 2e-4);
   });
-  test("Vallado Example 2-1 and a hyperbolic Kepler equation by brentq", () => {
+  test("Vallado Example 2-1 by brentq", () => {
     near(okv(keplerE(235.4 * D2R, 0.4)).E / D2R, O.orbit.vallado_2_1_E_deg, 1e-13);
-    near(okv(keplerH(40.69, 2.4)).F, O.orbit.hyperbolic_F, 1e-13);
   });
-  test("Barker's equation is solved exactly: D + D³/3 = 2·Mp", () => {
-    for (const Mp of [-50, -1, 0, 0.3, 1, 7, 1e4]) {
-      const D = barker(Mp);
-      expect(Math.abs(D / 2 + D ** 3 / 6 - Mp)).toBeLessThan(1e-9 * Math.max(1, Math.abs(Mp)));
+  test("Kepler's equation in each conic's own form (E, F, Barker) agrees with the integrated propagation", () => {
+    for (const k of ["parabola", "hyperbola"]) {
+      const c = O.orbit[k];
+      const e0 = okv(stateToElements(mu, c.r0, c.v0));
+      const e1 = okv(stateToElements(mu, c.r, c.v));
+      const kk = okv(trueAnomalyAfter(mu, e0.p, e0.e, e0.nu, c.t));
+      expect(Math.abs(Math.atan2(Math.sin(kk.nu - e1.nu), Math.cos(kk.nu - e1.nu)))).toBeLessThan(1e-8);
     }
+    const m = O.orbit.molniya;
+    const e0 = okv(stateToElements(mu, m.r0, m.v0));
+    const e1 = okv(stateToElements(mu, m.r2h, m.v2h));
+    const kk = okv(trueAnomalyAfter(mu, e0.p, e0.e, e0.nu, 7200));
+    expect(Math.abs(Math.atan2(Math.sin(kk.nu - e1.nu), Math.cos(kk.nu - e1.nu)))).toBeLessThan(1e-8);
   });
   test("propagation matches DOP853 integration: Molniya 2 h, parabola (e = 1 exactly) 6000 s, hyperbola 5000 s", () => {
     const m = O.orbit.molniya;
@@ -142,7 +149,7 @@ describe("elements and Kepler", () => {
   test("non-convergence and bad input are refused, never returned as numbers", () => {
     expect("ok" in keplerE(NaN, 0.5)).toBe(true);
     expect("ok" in keplerE(1, 1)).toBe(true);
-    expect("ok" in keplerH(1, 0.5)).toBe(true);
+    expect("ok" in keplerE(1, -0.5)).toBe(true);
     expect(propagate(mu, [7000e3, 0, 0], [0, 7.5e3, 0], NaN).ok).toBe(false);
     // A hyperbola propagated absurdly far overflows the universal variable: a named refusal, not Infinity.
     const far = propagate(mu, [7000e3, 0, 0], [0, 40e3, 0], 1e30);
@@ -170,7 +177,7 @@ describe("Lambert", () => {
   test("a 180° transfer is refused by name (singular plane)", () => {
     const L = lambert(mu, [7000e3, 0, 0], [-9000e3, 1e-3, 0], 4000);
     expect(L.ok).toBe(false);
-    if (!L.ok) expect(L.error).toMatch(/180°.*plane is undefined/);
+    if (!L.ok) expect(L.error).toMatch(/180°.*plane is not defined/);
     const L0 = lambert(mu, [7000e3, 0, 0], [9000e3, 0, 0], 4000);
     expect(L0.ok).toBe(false);
     if (!L0.ok) expect(L0.error).toMatch(/same line/);

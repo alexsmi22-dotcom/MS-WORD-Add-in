@@ -17,7 +17,7 @@ import { trueMinus } from "./numberList";
 import { refuseNonFinite } from "./finiteResult";
 import { G0 } from "./orbital";
 import { AU_M, DAY_S, GM_SI, R_EQ_SI, R_MEAN_SI, SPACE_BODIES, spaceBody, isoFromJd, julianDate, J2, OMEGA_EARTH } from "./spaceConstants";
-import { elementsToState, lambert, norm, propagate, stateToElements, cross, scale, sub, type ElementsFull, type LambertWay, type V3 } from "./spaceOrbit";
+import { elementsToState, lambert, norm, propagate, stateToElements, trueAnomalyAfter, cross, scale, sub, type ElementsFull, type LambertWay, type V3 } from "./spaceOrbit";
 import {
   CRITICAL_INC, PAIRS, ROUTH_MU, biellipticDvNorm, biellipticThresholds, bodyDensity, combinedDv, geoRadius, groundTrack, hillRadius, hohmannDvNorm,
   interplanetaryHohmann, j2Rates, jacobi, lagrange, lunarMission, phasing, planeChangeDv, porkchop, repeatTracks, rocheLimits, soiRadius, ssoInclination,
@@ -311,6 +311,13 @@ const elementsCalc: SpaceCalc = {
     rows.push(["Position r", vec(r0, 1000, "km"), ...(r1 ? [vec(r1, 1000, "km")] : [])]);
     rows.push(["Velocity v", vec(v0, 1000, "km/s"), ...(v1 ? [vec(v1, 1000, "km/s")] : [])]);
     lines.push(`Orbit type: ${el.conic}. Speed at epoch ${kms(norm(v0), 6)} at ${km(R0)} from the centre.`);
+    if (t !== null && el1 && !el.circular) {
+      // Kepler's equation in the conic's own form, as an independent check on the universal-variable propagation.
+      const k = trueAnomalyAfter(mu, el.p, el.e, el.nu, t);
+      if ("ok" in k) return refuse(k.error);
+      const d = Math.abs(Math.atan2(Math.sin(k.nu - el1.nu), Math.cos(k.nu - el1.nu))) * R2D;
+      lines.push(`Kepler's equation solved directly at t (${k.anomaly}) gives ν = ${deg(Math.atan2(Math.sin(k.nu), Math.cos(k.nu)) < 0 ? k.nu + 2 * Math.PI : k.nu)}, agreeing with the universal-variable propagation to ${d < 1e-9 ? "better than 10⁻⁹°" : `${sf(d, 2)}°`}.`);
+    }
     lines.push(`Model: two-body, ${body.label} a point mass with GM = ${sf(mu / 1e9, 9)} km³/s² (IAU 2009, script-extracted). No J2 (an Earth orbit's node turns several degrees a day at low altitude), no drag, no third bodies or solar pressure: a real orbit drifts away from this, and the further the propagation the further it drifts. Kepler's equation is solved by bracketed Newton iteration and refused by name if it does not converge.`);
     const outputs: EngOutput[] = [
       { key: "e", label: "Eccentricity", value: el.e, unit: "" },

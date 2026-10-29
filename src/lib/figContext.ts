@@ -201,6 +201,24 @@ function luminance(c: string): number | null {
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
+/** Dash patterns for coloured strokes in black and white (figureStyle.ts USPTO_DASHES, the patent line set). */
+const BW_STROKE_DASHES = ["", "7 3", "2.5 2.5", "9 3 2.5 3", "12 4", "5 4 1.5 4"];
+
+/** A colour with a real hue (not a grey): HSV saturation above 0.25 and not near black. */
+function saturated(c: string): boolean {
+  let s = c.trim().toLowerCase();
+  if (NAMED[s]) s = NAMED[s];
+  let m = /^#([0-9a-f]{3})$/.exec(s);
+  let rgb: number[] | null = null;
+  if (m) rgb = m[1].split("").map((h) => parseInt(h + h, 16));
+  else if ((m = /^#([0-9a-f]{6})/.exec(s))) rgb = [0, 2, 4].map((i) => parseInt(m![1].slice(i, i + 2), 16));
+  else if ((m = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/.exec(s))) rgb = [+m[1], +m[2], +m[3]];
+  if (!rgb) return false;
+  const mx = Math.max(...rgb);
+  const mn = Math.min(...rgb);
+  return mx > 40 && (mx - mn) / mx > 0.25;
+}
+
 /** Hatches for black-and-white fills: black lines on a TRANSPARENT ground, so a band over a curve never hides it. */
 const HATCH_IDS = ["fx-h0", "fx-h1", "fx-h2", "fx-h3", "fx-h4", "fx-h5"];
 function hatchDefs(used: number): string {
@@ -226,6 +244,18 @@ const OPACITY_ATTRS = ["opacity", "fill-opacity", "stroke-opacity", "stop-opacit
  */
 export function blackAndWhite(svg: string, hatching = true): string {
   const hatchOf = new Map<string, string>();
+  // Saturated stroke colours, in order of appearance → dash patterns (the first stays solid).
+  const dashFor = new Map<string, string>();
+  const dashOf = (colour: string): string => {
+    if (!saturated(colour)) return "";
+    const k = colour.trim().toLowerCase();
+    let d = dashFor.get(k);
+    if (d === undefined) {
+      d = BW_STROKE_DASHES[dashFor.size % BW_STROKE_DASHES.length];
+      dashFor.set(k, d);
+    }
+    return d;
+  };
   const hatch = (colour: string): string => {
     const k = colour.trim().toLowerCase();
     let id = hatchOf.get(k);
@@ -263,6 +293,13 @@ export function blackAndWhite(svg: string, hatching = true): string {
       if (get(p) !== undefined) a = a.replace(new RegExp(`(\\s${p}=")[^"]*(")`), `$1${v}$2`);
       else a += ` ${p}="${v}"`;
     };
+    // A COLOURED line keeps its identity as a dash pattern keyed by its colour (the legend swatch drawn in the same
+    // colour gets the same dash), so "demand" and "supply" stay two lines; a grey rule or axis is plain black.
+    const sv = get("stroke");
+    if (sv !== undefined && !BW_PAINT_OK.test(sv.trim()) && /^(line|path|polyline)$/.test(tag) && get("stroke-dasharray") === undefined) {
+      const dash = dashOf(sv);
+      if (dash) a += ` stroke-dasharray="${dash}"`;
+    }
     for (const p of ["stroke", "stop-color", "color", "flood-color", "lighting-color"]) {
       const v = get(p);
       if (v !== undefined && !BW_PAINT_OK.test(v.trim())) set(p, "#000");

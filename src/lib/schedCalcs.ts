@@ -809,7 +809,7 @@ export function altmanCalc(r: Read): FinResult {
         ? `between the ${fx(a.cutoffs[0], 2)} and ${fx(a.cutoffs[1], 2)} cut-offs, where the score does not clearly separate healthy from failing firms`
         : `below the ${fx(a.cutoffs[0], 2)} cut-off, the range where firms in Altman’s samples tended to fail`;
   const reading = `Z = ${fx(a.z, 4)} puts the company in the ${zoneName}, ${zoneMeaning}; it is a screening tool, not a forecast for this company.`;
-  return { text: lines.join("\n"), reading, tables: [table], svg: hBarSvg(a.x.map((x, i) => ({ name: `${x.name} ${short[i]}`, value: x.coef * x.value, text: fx(x.coef * x.value, 4) })), { title: `Contributions to Z = ${fx(a.z, 4)}`, unit: "" }) };
+  return { text: lines.join("\n"), reading, tables: [table], svg: hBarSvg(a.x.map((x, i) => ({ name: `${x.name} ${short[i]}`, value: x.coef * x.value, text: fx(x.coef * x.value, 4) })), { title: `Contributions to Z = ${fx(a.z, 2)}`, unit: "" }) };
 }
 
 export function cvpCalc(r: Read): FinResult {

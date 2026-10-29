@@ -49,6 +49,10 @@ import { blackScholes, bondPrice } from "../finance";
 import { finCurrencyWithFigure } from "../finPaneFigures";
 import { prejudgmentReport, postjudgmentReport } from "../damagesInterest";
 import { damagesFigure } from "../patentDamages";
+import { bracketedBoxPlot } from "../statsBrackets";
+import { twoSampleTTest } from "../stats";
+import { tukeyHSD } from "../tukey";
+import { currentFigCtx } from "../figContext";
 
 const SRC = path.join(__dirname, "..", "..");
 const PANE = fs.readFileSync(path.join(SRC, "taskpane", "taskpane.ts"), "utf8").replace(/\r\n/g, "\n");
@@ -136,8 +140,52 @@ const STAT_INLINE_LIB: Case[] = [
 const TIMES = [6, 6, 6, 7, 10, 13, 16, 22, 23, 6, 9, 10, 11, 17, 19, 20, 25, 32];
 const EVENTS = [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
+/**
+ * A significance-bracket figure as the pane redraws it (updateStatsPreview: the bracket builder at the figure context's
+ * width, inside figureRenderer). A bracket set that no longer fits throws, as the pane's render does.
+ */
+function bracketCase(fig: (w: number | undefined) => { ok: boolean; svg: string; error?: string }): () => string {
+  return () => {
+    const r = fig(currentFigCtx()?.width);
+    if (!r.ok) throw new Error(r.error ?? "brackets do not fit");
+    return r.svg;
+  };
+}
+const TA = [5.1, 4.9, 6.2, 5.8, 6.0, 5.5, 5.3];
+const TB = [6.8, 7.1, 6.5, 7.4, 6.9, 7.7, 7.0];
+
 /** The shared builders as the inline Statistics calculators call them (taskpane.ts STAT_CALCS). */
 const STAT_INLINE_BUILDERS: Case[] = [
+  {
+    id: "brackets: twosample, stars",
+    draw: bracketCase((w) =>
+      bracketedBoxPlot([{ label: "group 1", values: TA }, { label: "group 2", values: TB }], { title: "Welch two-sample t-test", ylabel: "value" }, { kind: "t", result: twoSampleTTest(TA, TB) }, { label: "stars", hideNs: false, tall: false }, w),
+    ),
+  },
+  {
+    id: "brackets: tukey, p values",
+    draw: bracketCase((w) =>
+      bracketedBoxPlot(
+        WELCH.map((g, i) => ({ label: `group ${i + 1}`, values: g })),
+        { title: "Tukey HSD (4 groups)", ylabel: "value" },
+        { kind: "tukey", result: tukeyHSD(WELCH)! },
+        { label: "p", hideNs: false, tall: false },
+        w,
+      ),
+    ),
+  },
+  {
+    id: "brackets: tukey, p values, taller with ns hidden",
+    draw: bracketCase((w) =>
+      bracketedBoxPlot(
+        WELCH.map((g, i) => ({ label: `group ${i + 1}`, values: g })),
+        { title: "Tukey HSD (4 groups)", ylabel: "value" },
+        { kind: "tukey", result: tukeyHSD(WELCH)! },
+        { label: "p", hideNs: true, tall: true },
+        w,
+      ),
+    ),
+  },
   { id: "box (descriptive, t-tests, ANOVA, rank tests)", draw: () => boxPlotSvg(WELCH.map((v, i) => ({ label: `Group ${i + 1}`, values: v })), { title: "One-way ANOVA (4 groups)", ylabel: "value" }) },
   { id: "box one group (descriptive)", draw: () => boxPlotSvg([{ label: "data", values: [2, 4, 4, 4, 5, 5, 7, 9] }], { title: "Distribution", ylabel: "value" }) },
   { id: "kaplan-meier (survival)", draw: () => kaplanMeierSvg([{ km: kaplanMeier(TIMES, EVENTS), label: "S(t)" }], { title: "Kaplan–Meier" }) },
@@ -265,12 +313,77 @@ const FIN_INLINE_BUILDERS: Case[] = [
   { id: "damages columns (royalty, lost profits, summary)", draw: () => damagesFigure(["2021", "2022", "2023", "2024"], [{ name: "reasonable royalty", values: [48000, 66000, 75000, 37200] }], "Reasonable royalty by period") },
 ];
 
+/** A library calculator on inputs other than its defaults (the reviewers' figure cases). */
+function finLibCase(id: string, label: string, over: Record<string, string>): Case {
+  const c = spreads<FinCalcDef>("const FIN_CALCS: FinCalc[] = [").find((x) => x.id === id);
+  if (!c) throw new Error(`no calculator ${id}`);
+  const raw = (k: string): string => over[k] ?? c.fields.find((f) => f.key === k)?.default ?? "";
+  const run = (): FinResult => {
+    const numeric = new Map<string, string>();
+    for (const f of c.fields) {
+      if (f.kind === "select" || f.kind === "list" || f.kind === "text" || f.kind === "block") continue;
+      const v = readFinanceField(raw(f.key));
+      if (Number.isFinite(v)) numeric.set(f.key, String(v));
+    }
+    return c.compute((k) => numeric.get(k) ?? raw(k));
+  };
+  return { id: `${id} (${label})`, draw: () => finSvg(run()) };
+}
+const TAB = String.fromCharCode(9);
+const stmt = (rows: string[][]): string => rows.map((r) => r.join(TAB)).join(String.fromCharCode(10));
+const EQUITY = "Shareholders’ equity";
+/** R3's figure cases (2026-10-28): a loss-making statement with a negative cash cycle, and a hostile one. */
+const FIN_LIB_HOSTILE: Case[] = [
+  finLibCase("fin-ratios", "a loss year, negative cash cycle", {
+    stmt: stmt([
+      ["Line item", "This year", "Prior year"],
+      ["Revenue", "2,400,000", "2,600,000"],
+      ["Cost of goods sold", "1,700,000", "1,750,000"],
+      ["Operating income", "-80,000", "150,000"],
+      ["Interest expense", "60,000", "55,000"],
+      ["Income tax expense", "0", "20,000"],
+      ["Net loss", "140,000", ""],
+      ["Cash", "40,000", "90,000"],
+      ["Marketable securities", "10,000", "10,000"],
+      ["Accounts receivable", "300,000", "280,000"],
+      ["Inventory", "500,000", "420,000"],
+      ["Total current assets", "850,000", "800,000"],
+      ["Total assets", "2,000,000", "2,100,000"],
+      ["Accounts payable", "260,000", "200,000"],
+      ["Total current liabilities", "900,000", "600,000"],
+      ["Total liabilities", "1,600,000", "1,560,000"],
+      [EQUITY, "400,000", "540,000"],
+    ]),
+  }),
+  finLibCase("fin-ratios", "a 250,000,000× interest coverage", {
+    stmt: stmt([
+      ["Line item", "This year", "Prior year"],
+      ["Revenue", "1,000,000,000", "900,000,000"],
+      ["Net income", "-50,000,000", "10,000,000"],
+      ["Interest expense", "1", "1"],
+      ["Operating income", "250,000,000", "1"],
+      ["Total current assets", "5", "3"],
+      ["Total current liabilities", "1,000,000", "1,000,000"],
+      ["Total assets", "2,000,000,000", "1,900,000,000"],
+      [EQUITY, "-100,000,000", "50,000,000"],
+      ["Inventory", "1", "1"],
+      ["Cost of goods sold", "999,999,999", "899,999,999"],
+      ["Accounts receivable", "1", "2"],
+      ["Accounts payable", "1", "1"],
+    ]),
+  }),
+  finLibCase("cvp-breakeven", "sales below break-even", { price: "125", vc: "80", fixed: "270,000", units: "5500", target: "45,000" }),
+  finLibCase("cba-pigou", "no external cost", { a: "100", b: "1", c: "10", d: "0.5", e0: "200", e1: "0" }),
+  finLibCase("corp-dcf", "exit multiple, mid-year", { fcf: "200, 180, 210, 240", wacc: "8.5", fade: "3", fadestart: "", terminal: "exit", multiple: "8", metric: "320", timing: "mid", netdebt: "1,500", shares: "" }),
+];
+
 const CASES: Case[] = [
   ...spreads<FinCalcDef>("const FIN_CALCS: FinCalc[] = [").map((c) => ({ id: c.id, draw: () => finSvg(runFin(c)) })),
   ...spreads<StatCalcDef>("const STAT_CALCS: StatCalc[] = [").map((c) => ({ id: c.id, draw: () => statSvg(c.compute((k) => c.fields.find((f) => f.key === k)?.default ?? "")) })),
   ...STAT_INLINE_LIB,
   ...STAT_INLINE_BUILDERS,
   ...FIN_INLINE_BUILDERS,
+  ...FIN_LIB_HOSTILE,
 ];
 
 const PRESETS: Exclude<FigurePresetChoice, "asdrawn">[] = ["nature", "elsevier", "acs", "cell", "thesis", "uspto"];
@@ -291,10 +404,22 @@ const EXCEPTIONS: Record<string, string> = {
   // It is refused by name for its grey fills; every journal style takes it.
   "corp-dcf uspto/single": "a heat map's shading cannot be drawn in black-and-white line art (37 CFR 1.84(a)(1))",
   "corp-dcf uspto/double": "a heat map's shading cannot be drawn in black-and-white line art (37 CFR 1.84(a)(1))",
+  "corp-dcf (exit multiple, mid-year) uspto/single": "a heat map (as corp-dcf above)",
+  "corp-dcf (exit multiple, mid-year) uspto/double": "a heat map (as corp-dcf above)",
   // The default econ-regtable has six terms × three models: six forest panels. At USPTO lettering (3.52 mm) even two
   // to a row they need 272 mm, above the 244 mm sight; fewer terms fit. Every journal style takes it.
   "econ-regtable uspto/single": "six coefficient panels at USPTO lettering need more than the 244 mm sight",
   "econ-regtable uspto/double": "six coefficient panels at USPTO lettering need more than the 244 mm sight",
+  // Tukey on four groups with every pair bracketed and labelled with its p: six brackets need 110 px above the data,
+  // more than 60% of the plot at a single column (and on the USPTO sight, where the lettering fills the plot). The
+  // bracket builder refuses BY NAME with the remedy ("tick Taller figure or Hide ns"), and with that remedy the same
+  // figure meets every style and width ("brackets: tukey, p values, taller with ns hidden" above).
+  ...Object.fromEntries(
+    ["nature/single", "elsevier/single", "acs/single", "cell/single", "thesis/single", "thesis/oneAndHalf", "uspto/single", "uspto/double"].map((k) => [
+      `brackets: tukey, p values ${k}`,
+      "six p-value brackets do not fit a single-column plot; refused by name with the remedy, which passes",
+    ]),
+  ),
 };
 
 describe("every Finance and Statistics figure meets every figure style at every width", () => {
@@ -302,9 +427,16 @@ describe("every Finance and Statistics figure meets every figure style at every 
   let accepted = 0;
   let total = 0;
   const drewNothing: string[] = [];
+  /** The slowest style insert (its re-renders included), reported for the integrator: a style re-runs the calculator. */
+  let slowest = { id: "", ms: 0 };
   beforeAll(() => {
     for (const c of CASES) {
-      const svg = c.draw();
+      let svg: string | undefined;
+      try {
+        svg = c.draw();
+      } catch {
+        svg = undefined;
+      }
       if (!svg) {
         drewNothing.push(c.id);
         continue;
@@ -314,7 +446,10 @@ describe("every Finance and Statistics figure meets every figure style at every 
         for (const w of WIDTHS) {
           if (!offered(p, w)) continue;
           total++;
+          const t0 = Date.now();
           const r = prepareFigure({ svg, preset: p, width: w, render });
+          const ms = Date.now() - t0;
+          if (ms > slowest.ms) slowest = { id: `${c.id} ${p}/${w}`, ms };
           if (r.ok) accepted++;
           else failures.set(`${c.id} ${p}/${w}`, `${r.reason}: ${r.problems.join("; ")}`);
         }
@@ -324,14 +459,17 @@ describe("every Finance and Statistics figure meets every figure style at every 
   test("the corpus is the whole surface: every inline family draws, and the spread calculators that draw nothing are the known ones", () => {
     const inline = new Set([...STAT_INLINE_LIB, ...STAT_INLINE_BUILDERS, ...FIN_INLINE_BUILDERS].map((c) => c.id));
     expect(drewNothing.filter((id) => inline.has(id))).toEqual([]);
-    // Library calculators whose defaults draw no figure (worksheets and text-only results, by design).
-    expect(drewNothing.length).toBeLessThan(25);
+    // Every spread calculator draws on its defaults (a figure that silently stops drawing would leave the gate).
+    expect(drewNothing).toEqual([]);
     expect(total).toBeGreaterThan(2000);
   });
 
   test("no refusal outside the named exceptions", () => {
     const unexpected = [...failures.entries()].filter(([k]) => !(k in EXCEPTIONS)).map(([k, v]) => `${k}: ${v.slice(0, 300)}`);
-    if (process.env.FIG_GATE_OUT) fs.writeFileSync(process.env.FIG_GATE_OUT, [`accepted ${accepted}/${total}`, ...unexpected].join("\n"));
+    if (process.env.FIG_GATE_OUT) {
+      const head = `accepted ${accepted}/${total}; slowest ${slowest.id} ${slowest.ms} ms; drew nothing: ${drewNothing.join(", ")}`;
+      fs.writeFileSync(process.env.FIG_GATE_OUT, [head, ...unexpected].join("\n"));
+    }
     expect(unexpected).toEqual([]);
   });
 

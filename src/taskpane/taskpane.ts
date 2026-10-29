@@ -9431,8 +9431,8 @@ const FIN_CALCS: FinCalc[] = [
             .filter((row) => Number.isFinite(row.value))
             // Each bar printed as the text prints money ("18,193.97"), never "1.82×10⁵" (hBarSvg `text`).
             .map((row) => ({ ...row, text: finMoney(row.value) })),
-          // The years as typed ("after 10 years", not "after 10.00 years").
-          { title: "Amount after " + String(+years.toFixed(6)).replace("-", "−") + " years, by compounding", unit: "", w: currentFinFig()?.width ?? 360, bw: currentFinFig()?.bw },
+          // Unrounded, for the same reason as the compounding title above.
+          { title: "Amount after " + finFixed(years, 2) + " years, by compounding", unit: "", w: currentFinFig()?.width ?? 360, bw: currentFinFig()?.bw },
         ),
       };
     },
@@ -10609,16 +10609,16 @@ const STAT_CALCS: StatCalc[] = [
         // warnings printed above are about exactly the shapes this shows.
         svg: boxPlotSvg(
           [
-            { label: "group 1", values: a },
-            { label: "group 2", values: b },
+            { label: "group A", values: a },
+            { label: "group B", values: b },
           ],
           { title: `${label} two-sample t-test`, ylabel: "value" },
         ),
         brackets: (choice, w) =>
           bracketedBoxPlot(
             [
-              { label: "group 1", values: a },
-              { label: "group 2", values: b },
+              { label: "group A", values: a },
+              { label: "group B", values: b },
             ],
             { title: `${label} two-sample t-test`, ylabel: "value" },
             { kind: "t", result: res },
@@ -11914,16 +11914,16 @@ const STAT_CALCS: StatCalc[] = [
         // chosen over a t-test in the first place.
         svg: boxPlotSvg(
           [
-            { label: "group 1", values: a },
-            { label: "group 2", values: b },
+            { label: "group A", values: a },
+            { label: "group B", values: b },
           ],
           { title: "Mann-Whitney U", ylabel: "value" },
         ),
         brackets: (choice, w) =>
           bracketedBoxPlot(
             [
-              { label: "group 1", values: a },
-              { label: "group 2", values: b },
+              { label: "group A", values: a },
+              { label: "group B", values: b },
             ],
             { title: "Mann-Whitney U", ylabel: "value" },
             { kind: "mann-whitney", result: res },

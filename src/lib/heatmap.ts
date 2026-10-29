@@ -52,6 +52,11 @@ export interface HeatmapOptions {
   grey?: boolean;
   /** Suppress the in-cell numbers even where they fit. */
   hideValues?: boolean;
+  /**
+   * The caller's own number formatting for the cell values and the scale's two ends ("1,306", as its table prints
+   * them), instead of the short in-cell label ("1306") and the scale's rounded ends (1720 for a maximum of 1,717).
+   */
+  valueText?: (v: number) => string;
 }
 
 export interface HeatmapResult {
@@ -197,7 +202,11 @@ export function buildHeatmapSvg(
   // Cells. A 1px surface-coloured gap between them is what makes the grid read as
   // cells rather than as a continuous field, and it is the same 2px-spacer idea the
   // rest of the chart code uses between adjacent fills.
-  const showValues = opts.hideValues !== true && cw >= 34 && rh >= 15;
+  // The caller's own value text can be longer than the short label: the cell must hold its widest one.
+  const widestText = opts.valueText
+    ? Math.max(0, ...cols.flatMap((s) => s.values.filter((v): v is number => v !== null && v !== undefined && Number.isFinite(v)).map((v) => opts.valueText!(v).length))) * 6 + 6
+    : 0;
+  const showValues = opts.hideValues !== true && cw >= Math.max(34, widestText) && rh >= 15;
   for (let c = 0; c < cols.length; c++) {
     for (let r = 0; r < rows.length; r++) {
       const v = cols[c].values[r];
@@ -225,7 +234,7 @@ export function buildHeatmapSvg(
         parts.push(
           `<text x="${(x + cw / 2).toFixed(1)}" y="${(y + rh / 2 + 3.5).toFixed(1)}" ` +
             `text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="9.5" ` +
-            `fill="${inkOn(fill)}">${esc(cellLabel(v))}</text>`,
+            `fill="${inkOn(fill)}">${esc(opts.valueText ? opts.valueText(v) : cellLabel(v))}</text>`,
         );
       }
     }
@@ -314,7 +323,7 @@ export function buildHeatmapSvg(
     parts.push(tickText(barX + barW, l2, "end"));
     midLabel = l1;
   } else {
-    const [l0, l1] = barRow([min, max]);
+    const [l0, l1] = opts.valueText ? [opts.valueText(min), opts.valueText(max)] : barRow([min, max]);
     parts.push(tickText(barX, l0, "start"));
     parts.push(tickText(barX + barW, l1, "end"));
   }

@@ -812,7 +812,7 @@ export function pslraLookbackCalc(r: Read): FinResult {
   const xs = lb.rows.map((x) => x.dayOfPeriod);
   const series = [
     { points: lb.rows.map((x, i) => ({ x: xs[i], y: x.close })), type: "line" as const, color: "#2563eb", label: "close" },
-    { points: lb.rows.map((x, i) => ({ x: xs[i], y: x.mean })), type: "line" as const, color: "#b45309", label: "mean price to date" },
+    { points: lb.rows.map((x, i) => ({ x: xs[i], y: x.mean })), type: "line" as const, color: "#b45309", label: "mean trading price" },
   ];
   if (purchase !== null) series.push({ points: [{ x: 1, y: purchase }, { x: 90, y: purchase }], type: "line" as const, color: "#64748b", label: "purchase price" });
   const svg = lb.rows.length >= 2 ? finPlotSvg(series, { width: 380, height: 250, title: "PSLRA 90-day lookback (from the inputs given)", xlabel: "day of the 90-day period", ylabel: "price per share ($)" }) : undefined;

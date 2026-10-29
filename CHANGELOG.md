@@ -6,6 +6,49 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.206.0] (unreleased)
+
+### Lighting & rendering
+New Engineering panel after Light & camera, seven calculators (Engineering +7, +1 group). Each opens with a reading
+built from its own numbers, states what it assumes, refuses bad input by name and draws. Oracles:
+`scripts/lighting-oracle.py` → `src/lib/__tests__/fixtures/lighting-oracle.json`.
+- **Sun position, golden hour & shadows** (`rend-sun-shadow`): Meeus low-accuracy solar coordinates (the NOAA Solar
+  Calculator's basis) with ΔT, apparent sidereal time, parallax and SPA refraction. Against NREL SPA (pvlib 0.16.1
+  `nrel_numpy`, 336 cases, 8 sites, 1990–2075): elevation within 0.0066°, azimuth arc within 0.0066°, equation of
+  time within 1.5 s; transit within 1.5 s; sunrise/sunset within 4.4 s of brentq on SPA's elevation at −0.8333°.
+  Golden hour (6° to −4°) and blue hour (−4° to −6°) are within 17 s of the same crossings. Polar day and night are
+  answers, not errors. The shadow length and bearing come with the soft edge the sun's 0.533° disc gives the tip.
+  Figures: the sun path (centred on north when the sun culminates there) and a plan of the shadow across the day.
+- **Soft shadows: umbra & penumbra** (`rend-soft-shadow`): penumbra D·d/L, umbra w − (D − w)d/L, where the umbra
+  ends and the antumbra begins, contact hardening, and the point-light shadow. Figures: a ray diagram, and the widths
+  against receiver distance.
+- **Light falloff, lighting ratios & light units** (`rend-falloff`): inverse-square stops, the light move for a
+  change in stops, and key:fill in stops (with the (key + fill):fill convention named). The exact on-axis disc
+  πL·sin²θ is set against the point form; the error is (R/z)², exactly 1 % at five diameters (checked against scipy
+  quad). Renderer units: lm → cd (Φ/4π), spot Φ/Ω using light-photometry's cone, area lm → nits (Φ/πA), and W → lm
+  at an efficacy that is refused above 683 lm/W.
+- **Microfacet BRDF** (`rend-brdf`): Cook–Torrance with GGX D, Smith G (height-correlated or separable) and Schlick F;
+  α = r²; F0 from IOR through the thin-film Fresnel module, or a metallic mix. Roughness below 0.045 is floored there
+  (Filament's clamp), and the floor is said. Directional albedo is integrated over the half-vector on a graded grid,
+  within 3.4×10⁻⁵ of an independent numpy Gauss–Legendre integral over the light direction. The white-furnace loss
+  is shown, and Schlick is set against exact Fresnel. Figures: the lobe for four roughness values, and albedo against
+  roughness.
+- **Render noise & samples per pixel** (`rend-noise`): N = N₀(σ₀/σₜ)² and render time with fixed overhead. The
+  closed-form per-sample variance of uniform against cosine-weighted hemisphere sampling for a light cone matches
+  scipy quad; cosine sampling is exact at β = 90°. Figure: noise against samples (log–log) with seeded Monte Carlo.
+- **Tone mapping & dynamic range** (`rend-tonemap`): Reinhard simple and extended, Hable Uncharted 2 (constants
+  cited, exposure bias 2), and Narkowicz's ACES fit (labelled an approximation, clipping at 7.2417), with 8-bit sRGB
+  codes. Also the exposure that puts middle grey at 0.18 under each curve, and dynamic range in stops. Figure: the
+  curves on a log axis.
+- **Atmosphere, fog & scattering** (`rend-atmosphere`): Beer–Lambert, Koschmieder 3.912/σ (and the WMO 5 % range),
+  Rayleigh λ⁻⁴, Kasten–Young air mass (matches pvlib), and Bucholtz (1995) Rayleigh optical depth (0.0972 at 550 nm;
+  within 1.5 % of Hansen–Travis and Bird–Riordan over 400–700 nm). Direct-beam transmittance by wavelength, and
+  Henyey–Greenstein (normalisation and ⟨cos θ⟩ = g checked by quad). σ = 0 reads "unlimited", never Infinity.
+- Gates: `FIGURE_BASELINE` 241 → 248 (engineering-audit), `CORPUS_FLOOR` 965 → 1035 (check-figures).
+  engEquations.test.ts now also counts `engEq` keys used by library registries (`src/lib/*Calcs.ts`).
+- Not built: a reflections/caustics calculator. The critical angle and total internal reflection already exist
+  (Optics ▸ Snell, thin-film Fresnel), and Snell's window is twice the critical angle.
+
 ## [2.204.0] — 2026-10-28 — F3: GMM and dynamic panels
 
 Stats grows from 75 to 77 calculators. Both are checked against linearmodels 7.1, pydynpd 0.2.2 and an independent

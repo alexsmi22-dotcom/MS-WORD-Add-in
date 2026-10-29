@@ -417,7 +417,7 @@ export function falloff(inp: FalloffInput): FalloffResult | Err {
   if (!fin(coneDeg) || coneDeg <= 0 || coneDeg > 360) return err("Spot cone angle: a full angle above 0° and at most 360°.");
   if (watts !== null && (!fin(watts) || watts < 0)) return err("Electrical power: it must be zero or positive.");
   if (efficacy !== null && (!fin(efficacy) || efficacy <= 0 || efficacy > 683)) return err("Luminous efficacy: above 0 and at most 683 lm/W (the maximum, reached only by monochromatic 555 nm light).");
-  const stops = 2 * Math.log2(d2 / d1);
+  const stops = falloffStops(d1, d2) as number;
   const R = diameter / 2;
   const area = Math.PI * R * R;
   const Lum = flux / (Math.PI * area);
@@ -457,12 +457,6 @@ export function ggxD(NoH: number, alpha: number): number {
   const a2 = alpha * alpha;
   const t = NoH * NoH * (a2 - 1) + 1;
   return a2 / (Math.PI * t * t);
-}
-
-/** Smith G₁ for GGX: 2(n·v)/((n·v) + √(α² + (1 − α²)(n·v)²)). */
-export function smithG1(NoV: number, alpha: number): number {
-  const a2 = alpha * alpha;
-  return (2 * NoV) / (NoV + Math.sqrt(a2 + (1 - a2) * NoV * NoV));
 }
 
 /**

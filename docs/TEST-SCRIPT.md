@@ -10,6 +10,37 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0es. New in v2.206.0 — Lighting & rendering (Engineering +7, new panel) — DRAFT
+
+- [ ] **Engineering panels:** **Lighting & rendering** appears after Light & camera, with 7 tools.
+- [ ] **Sun position, golden hour & shadows** (defaults: London, 2026-06-21, 15:00, +1, 1.8 m) → the first line reads
+  "the sun is 54° above the horizon in the south-west (azimuth 230°); a 1.8 m object casts a 1.31 m shadow pointing
+  north-east". The table gives elevation 53.9883° (geometric 53.9761°), azimuth 230.003° (SW), solar noon 13:02,
+  sunrise 04:43, sunset 21:22, day length 16 h 38 min, golden hour 04:15 to 05:37 and 20:27 to 21:50, blue hour
+  03:55 to 04:15 and 21:50 to 22:09, and a shadow of 1.30834 m at bearing 50°. Two figures: the sun path and the shadow plan.
+- [ ] Same, latitude 78.2232, longitude 15.6267, date 2026-12-21, time 12:00 → "polar night", "no shadow", and
+  sunrise "none: polar night"; it still draws.
+- [ ] Same, date `06/07/2026` → refused: "not a date in the form YYYY-MM-DD".
+- [ ] **Soft shadows** (defaults 1 m light, 0.3 m occluder, 2 m, 1 m) → the reading says there is no umbra and a
+  0.05 m antumbra. Penumbra 0.5 m each side, outer width 0.95 m, the umbra ends at 0.857143 m, point-light shadow
+  0.45 m. With d = 0 → "perfectly hard". With L = 0 → refused: "the occluder sits at the light".
+- [ ] **Light falloff, ratios & units** (defaults) → 2 stops to the background, move to 1.414 m for +1 stop, 4:1 is
+  2 stops, the point form 6.25 % high at 2 m and 1 % at 5 m. Point light 795.775 cd, spot (60°) 11879.5 cd
+  (Ω = 0.841787 sr), area 4052.85 nit, 100 W at 100 lm/W = 10000 lm. With an efficacy of 700 → refused (683).
+- [ ] **Microfacet BRDF** (defaults r 0.5, IOR 1.5, 45°/45°/180°) → D 5.09296, G 0.970143, F 0.0420693, specular
+  0.10393 sr⁻¹, diffuse 0.254648, white-furnace albedo 0.886239 (it loses 11.4 %), albedo with F0 0.0395325, Schlick
+  −16.3 % from exact Fresnel 0.0502399. With r = 0 → computed, with "raised to it … delta function". With θv = 90 →
+  refused.
+- [ ] **Render noise** (defaults 64 spp, 8 % → 2 %, 10 min, 30 s overhead, β 30°) → 16 × the samples, 1024 spp,
+  2 h 33 min; variances 3.99529 (uniform) and 1.85055 (cosine), ratio 2.15898. With β = 90 → "no noise at all", and
+  the figure notes the missing cosine line.
+- [ ] **Tone mapping** (defaults) → middle grey at Reinhard 0.1525 (sRGB 109), extended 0.1543 (109), Hable 0.1283
+  (100), ACES fit 0.2669 (141); dynamic range 19.9 stops; the ACES fit clips above 7.2417.
+- [ ] **Atmosphere, fog & scattering** (defaults: visibility 2 km, 500 m, sun at 5°) → σ 1.95601 km⁻¹,
+  transmittance 0.37606, MOR 1531.55 m, air mass 10.3058. Direct beam: 450 nm 0.101845, 550 nm 0.3674, 650 nm
+  0.601897. HG p(30°) 0.251739 sr⁻¹, forward/back 394.4. With σ = 0 → "unlimited" visibility, transmittance 1.
+- [ ] Insert any one of them: the text, equations, tables and figures land in the document; Ctrl+Z removes them.
+
 ## 0er. New in v2.204.0 — F3 (Stats 75 → 77)
 
 - [ ] **Stats ▸ Causal inference & panels ▸ GMM: one- or two-step efficient IV (Hansen J)** (defaults) → educ 0.0713 (SE 0.0233), exper 0.02282, Constant 1.0536; Hansen J = 0.099, χ²(1), p = 0.753; first stage partial R² = 0.523; second table 2SLS educ 0.0718 beside GMM 0.0713; figure "2SLS vs GMM".

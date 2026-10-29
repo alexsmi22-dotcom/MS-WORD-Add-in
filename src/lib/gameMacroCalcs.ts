@@ -862,7 +862,7 @@ export function macroIslmCalc(read: Read): StatOutput {
       ratIsZero(v.dM) ? "" : `ΔM = ${X(v.dM)}`,
     ].filter(Boolean).join(", ");
     lines.push(
-      `Policy (${what}): Y* ${X(s0.Y)} → ${X(s1.Y)} (ΔY = ${X(dY)}), r* ${X(s0.r)}% → ${X(s1.r)}% (Δr = ${X(dr)} percentage points), investment changes by ${X(ratSub(s1.I, s0.I))}.`,
+      `Policy (${what}): Y* ${X(s0.Y)} → ${X(s1.Y)} (ΔY = ${X(dY)}), r* ${X(s0.r)}% → ${X(s1.r)}% (Δr = ${X(dr)} percentage point${/^[−-]?1$/.test(X(dr)) ? "" : "s"}), investment changes by ${X(ratSub(s1.I, s0.I))}.`,
     );
     if (!ratIsZero(v.dG) || !ratIsZero(v.dT)) {
       lines.push(`With r held fixed (Keynesian cross, no crowding out) the fiscal change alone would move Y by (ΔG − cΔT)/(1 − c) = ${X(keynes)}.`);

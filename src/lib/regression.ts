@@ -303,9 +303,20 @@ export function polynomialRegression(
   y: number[],
   degree: number,
 ): MultipleRegressionResult & { centre: number; degree: number } {
-  // 1–4, the degrees the pane offers (it said "6 is the maximum" beside a dropdown ending at 4).
-  const deg = Math.max(1, Math.min(4, Math.floor(degree)));
+  // 1–4, the degrees the pane offers (it said "6 is the maximum" beside a dropdown ending at 4). Anything else is
+  // refused by name (round 2 MINOR: degree 5 or 6 came back silently as degree 4).
   const centre = x.length ? mean(x) : 0;
+  if (!(Number.isInteger(degree) && degree >= 1 && degree <= 4)) {
+    const bad = multipleRegression([], []);
+    return {
+      ...bad,
+      ok: false,
+      reason: `The degree must be a whole number from 1 to 4; ${Number.isFinite(degree) ? String(degree).replace("-", "−") : "that"} is not offered (a higher degree overfits, and its powers of x are numerically unstable).`,
+      centre,
+      degree,
+    };
+  }
+  const deg = degree;
   const cols: number[][] = [];
   const names: string[] = [];
   for (let d = 1; d <= deg; d++) {

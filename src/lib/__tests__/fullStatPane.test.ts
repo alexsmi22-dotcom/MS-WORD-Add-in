@@ -455,7 +455,7 @@ describe("power, multiplicity, uncertainty", () => {
     const p = [0.01, 0.04, 0.03, 0.005, 0.2];
     const adj = adjustPValues(p, "bh");
     const r = ok(R.multcompReading(p, adj, "Benjamini–Hochberg (FDR)"));
-    expectNumbersIn(r, p.map((raw, i) => `p = ${assaySig(raw, 3)} → ${assaySig(adj[i], 3)}`).join("\n") + " 0.05");
+    expectNumbersIn(r, p.map((raw, i) => `p = ${assaySig(raw, 3)} → ${assaySig(adj[i], 3)}`).join("\n") + " 0.05 5%"); // 5%: BOUNDARY_CLAUSE (round 2: an adjusted p printed 0.05 is borderline)
     const b = ok(R.multcompReading(p, adjustPValues(p, "bonferroni"), "Bonferroni"));
     expect(b).not.toBe(r);
     // Two p-values: "neither of the two", not "none of the two" (R4 #11 count grammar).

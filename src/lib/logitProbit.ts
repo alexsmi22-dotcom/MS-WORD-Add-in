@@ -980,7 +980,9 @@ export function fmtOddsRatio(v: number): string {
   const a = Math.abs(v);
   if (a === 0) return "0";
   if (a < 1e-3 || a >= 1e9) return fmtSci(v);
-  const digits = Math.floor(Math.log10(a)) + 1;
+  // The magnitude AFTER rounding to 4 significant figures (round 2 MINOR): 0.99996 rounds to 1.000, so it takes three
+  // decimals like 1.00001, not four ("1.0000").
+  const digits = Math.floor(Math.log10(Number(a.toPrecision(4)))) + 1;
   return tableFixed(v, Math.max(0, 4 - digits));
 }
 

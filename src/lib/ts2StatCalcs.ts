@@ -751,7 +751,9 @@ export function tsVarCalc(read: Read): StatOutput {
       `No series clearly helps predict another: the strongest link has ${gp(e)}, ${BOUNDARY_CLAUSE}.`,
     );
   } else {
-    reading = fitReading(`No series helps predict another beyond its own past at the 5% level${stab}.`, "No series helps predict another beyond its own past at the 5% level.");
+    // With three or more series the test conditions on every series' past (R6 #11; round 2 MINOR: this branch too).
+    const own = K === 2 ? "beyond its own past" : "beyond what its own past and the other series' pasts already predict";
+    reading = fitReading(`No series helps predict another ${own} at the 5% level${stab}.`, `No series helps predict another ${own} at the 5% level.`);
   }
   return { text: lines.join("\n"), reading, tables, svg };
 }

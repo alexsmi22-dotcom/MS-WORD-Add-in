@@ -298,28 +298,41 @@ export function friedmanReading(res: FriedmanResult): string | undefined {
 export function assumptionsReading(norm: NormalityResult, vh: VarianceHomogeneityResult | null, groups: number): string | undefined {
   const parts: string[] = [];
   let problem = false;
+  let edge = false;
+  // The one p rule (round 2 MAJOR 8): decided on the p as printed, so .0496 and .0503 (both ".050") get the same
+  // borderline words instead of opposite verdicts from the raw p.
   if (norm.ok && Number.isFinite(norm.p)) {
-    if (norm.normal) parts.push(`no evidence against normal residuals (${formatP(norm.p)})`);
-    else {
-      parts.push(`the residuals look non-normal (${formatP(norm.p)})`);
+    const p = formatP(norm.p);
+    const nv = v(p);
+    if (nv === "clear") {
+      parts.push(`the residuals look non-normal (${p})`);
       problem = true;
-    }
+    } else if (nv === "borderline") {
+      parts.push(`the normality test (${p}) is ${BOUNDARY_CLAUSE}`);
+      edge = true;
+    } else parts.push(`no evidence against normal residuals (${p})`);
   } else parts.push("too few values to test normality, so judge it from the Q-Q plot");
   if (groups >= 2 && vh) {
     if (vh.ok && Number.isFinite(vh.p)) {
-      if (vh.equal) parts.push(`no evidence of unequal variances (${formatP(vh.p)})`);
-      else {
-        parts.push(`the group variances differ (${formatP(vh.p)})`);
+      const p = formatP(vh.p);
+      const vv = v(p);
+      if (vv === "clear") {
+        parts.push(`the group variances differ (${p})`);
         problem = true;
-      }
+      } else if (vv === "borderline") {
+        parts.push(`the equal-variance test (${p}) is ${BOUNDARY_CLAUSE}`);
+        edge = true;
+      } else parts.push(`no evidence of unequal variances (${p})`);
     }
   }
   const tested = norm.ok && Number.isFinite(norm.p);
   const verdict = problem
     ? "A rank test or Welch's version is the safer choice."
-    : tested
-      ? "A t-test or ANOVA is reasonable for these data."
-      : "Nothing tested here argues against a t-test or ANOVA.";
+    : edge
+      ? "A rank test or Welch's version is the cautious choice."
+      : tested
+        ? "A t-test or ANOVA is reasonable for these data."
+        : "Nothing tested here argues against a t-test or ANOVA.";
   return `${capital(parts.join("; "))}. ${verdict}`;
 }
 
@@ -386,6 +399,11 @@ export function multipleRegressionReading(res: MultipleRegressionResult, poly?: 
   if (overallV === "borderline") return `${lead}; the overall test is ${BOUNDARY_CLAUSE}.`;
   if (best && bestV === "borderline" && overallV === "clear") {
     return `${lead}; the clearest single predictor, ${best.name} (${formatP(best.p)}), is ${BOUNDARY_CLAUSE}.`;
+  }
+  // Round 2 (MINOR): the overall test is not clear but one predictor is; "none is clearly related" contradicted the
+  // table. With several predictors one small p on its own is weaker evidence, so it is said with that hedge.
+  if (best && bestV === "clear") {
+    return `${lead}, so together they are not clearly related to it; ${best.name} on its own is (${formatP(best.p)}), but with several predictors tested one small p can be chance.`;
   }
   return `${lead}, but none is clearly related to it on its own.`;
 }
@@ -494,21 +512,27 @@ export function multcompClear(p: number): boolean {
 export function multcompReading(raw: number[], adj: number[], methodName: string): string | undefined {
   const n = raw.length;
   const keep = raw.map((p, i) => ({ p, a: adj[i] })).filter((x) => multcompClear(x.a));
-  const lost = raw.filter((p, i) => multcompClear(p) && !multcompClear(adj[i])).length;
+  // Round 2 (MINOR): an adjusted p printed exactly at 0.05 is borderline (the one p rule), not "does not stay below".
+  const atEdge = (p: number): boolean => v(assaySig(p, 3)) === "borderline";
+  const edge = adj.filter(atEdge).length;
+  const lost = raw.filter((p, i) => multcompClear(p) && !multcompClear(adj[i]) && !atEdge(adj[i])).length;
   if (n === 1) {
     if (keep.length) return `After the ${methodName} correction the p-value (raw ${assaySig(raw[0], 3)}) stays below 0.05.`;
+    if (edge) return `After the ${methodName} correction the p-value is ${assaySig(adj[0], 3)}, ${BOUNDARY_CLAUSE}.`;
     return `After the ${methodName} correction the p-value does not stay below 0.05${lost ? ", although it was below it before" : ""}.`;
   }
+  const edgeTail = edge ? `; ${countWord(edge)} ${edge === 1 ? "is" : "are"} exactly 0.05 as printed, ${BOUNDARY_CLAUSE}` : "";
   if (!keep.length) {
     const before = lost ? `, including ${countWord(lost)} that ${lost === 1 ? "was" : "were"} below it before` : "";
     return n === 2
-      ? `After the ${methodName} correction neither of the two p-values stays below 0.05${before}.`
-      : `After the ${methodName} correction none of the ${countWord(n)} p-values stays below 0.05${before}.`;
+      ? `After the ${methodName} correction neither of the two p-values stays below 0.05${before}${edgeTail}.`
+      : `After the ${methodName} correction none of the ${countWord(n)} p-values stays below 0.05${before}${edgeTail}.`;
   }
   const shown = keep.slice(0, 4).map((x) => assaySig(x.p, 3));
   return (
     `After the ${methodName} correction ${ofTheCount(keep.length, n).toLowerCase()} p-values ${ofTheSingular(keep.length, n) ? "stays" : "stay"} below 0.05 (raw ${andList(shown)}${keep.length > 4 ? ", and more" : ""})` +
-    (lost ? `; ${countWord(lost)} that looked significant alone ${lost === 1 ? "does" : "do"} not survive.` : ".")
+    (lost ? `; ${countWord(lost)} that looked significant alone ${lost === 1 ? "does" : "do"} not survive` : "") +
+    `${edgeTail}.`
   );
 }
 

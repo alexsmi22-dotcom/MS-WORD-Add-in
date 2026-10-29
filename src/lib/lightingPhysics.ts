@@ -202,32 +202,95 @@ export function sunAt(lat: number, lon: number, d: LocalDay, minutes: number, pr
 /** A crossing of an altitude threshold: the local clock minute (may be < 0 or ≥ 1440: the day before or after). */
 export type Crossing = number | null;
 
-export interface SunEvents {
-  /** Solar noon (transit), local minutes. */
-  transit: number;
-  /** Highest and lowest geometric elevation of the day (at transit and anti-transit). */
-  maxElevation: number;
-  minElevation: number;
-  sunrise: Crossing;
-  sunset: Crossing;
-  /** "normal", or "polar day" (never sets) / "polar night" (never rises) by the −0.8333° rule. */
-  daylight: "normal" | "polar day" | "polar night";
-  /** Day length in minutes (1440 in polar day, 0 in polar night). */
-  dayLength: number;
-  /** Morning and evening golden hour [start, end] (sun from −4° up to 6°, and 6° down to −4°). */
-  goldenMorning: [Crossing, Crossing];
-  goldenEvening: [Crossing, Crossing];
-  /** Morning and evening blue hour [start, end] (−6° to −4°, and −4° to −6°). */
-  blueMorning: [Crossing, Crossing];
-  blueEvening: [Crossing, Crossing];
+/**
+ * A stretch of the local date (minutes 0–1440) during which the sun's elevation stays inside a band. `openStart`: it
+ * was already inside at 00:00 (it began the day before); `openEnd`: still inside at 24:00 (it runs past midnight).
+ */
+export interface DayWindow {
+  start: number;
+  end: number;
+  openStart: boolean;
+  openEnd: boolean;
 }
 
 /**
- * The day's events for the local date: transit by Newton steps on the hour angle; then each altitude threshold is
- * decided from the day's maximum and minimum elevation (transit and the anti-transits either side), and only a
- * threshold that is actually crossed is bisected for (so a brief dip near the poles is not missed by a coarse scan).
- * Thresholds are on the GEOMETRIC elevation of the sun's centre (refraction is folded into −0.8333° for rise and set,
- * as SPA does); golden and blue hour are geometric too.
+ * How the sun treats the horizon (−0.8333°) this day:
+ *   "normal"       a sunrise before solar noon and a sunset after it;
+ *   "rises only"   it rises, then stays up through the next anti-transit (high-latitude spring, near the poles);
+ *   "sets only"    it was up through the previous anti-transit and sets after noon (high-latitude summer's end);
+ *   "polar day" / "polar night"  no crossing at all.
+ */
+export type Daylight = "normal" | "rises only" | "sets only" | "polar day" | "polar night";
+
+export interface SunEvents {
+  /** Solar noon (transit), local minutes. */
+  transit: number;
+  /** Highest and lowest geometric elevation on the local date (transit, and the date's own ends and anti-transits). */
+  maxElevation: number;
+  minElevation: number;
+  /** The rising crossing in the half-day before transit, and the setting crossing in the half-day after it. */
+  sunrise: Crossing;
+  sunset: Crossing;
+  daylight: Daylight;
+  /** Minutes of the LOCAL DATE with the sun above −0.8333° (the sum of `lit`), however the crossings fall. */
+  dayLength: number;
+  /** The date's sunlit stretches, golden-hour stretches (−4° to 6°) and blue-hour stretches (−6° to −4°). */
+  lit: DayWindow[];
+  golden: DayWindow[];
+  blue: DayWindow[];
+}
+
+/** Scan step for the date's windows, minutes: the sun crosses a 2° band in more than 8 min at any latitude. */
+const WINDOW_STEP = 2;
+
+/**
+ * The stretches of [0, 1440] with lo ≤ e ≤ hi, from elevations sampled every WINDOW_STEP minutes and each boundary
+ * bisected on the threshold crossed there.
+ */
+function bandWindows(elev: (m: number) => number, samples: number[], lo: number, hi: number): DayWindow[] {
+  const inside = (e: number): boolean => e >= lo && e <= hi;
+  const bisect = (a: number, b: number, h: number): number => {
+    let fa = elev(a) - h;
+    for (let i = 0; i < 40; i++) {
+      const m = (a + b) / 2;
+      const fm = elev(m) - h;
+      if (Math.sign(fm) === Math.sign(fa) && fm !== 0) {
+        a = m;
+        fa = fm;
+      } else b = m;
+    }
+    return (a + b) / 2;
+  };
+  const out: DayWindow[] = [];
+  let start: number | null = inside(samples[0]) ? 0 : null;
+  let openStart = start !== null;
+  for (let i = 1; i < samples.length; i++) {
+    const was = inside(samples[i - 1]);
+    const now = inside(samples[i]);
+    if (was === now) continue;
+    const a = (i - 1) * WINDOW_STEP;
+    const b = i * WINDOW_STEP;
+    // The threshold crossed: the one lying between the two samples.
+    const h = (samples[i - 1] - lo) * (samples[i] - lo) <= 0 ? lo : hi;
+    const t = bisect(a, b, h);
+    if (now) {
+      start = t;
+      openStart = false;
+    } else if (start !== null) {
+      out.push({ start, end: t, openStart, openEnd: false });
+      start = null;
+      openStart = false;
+    }
+  }
+  if (start !== null) out.push({ start, end: 1440, openStart, openEnd: true });
+  return out;
+}
+
+/**
+ * The day's events for the local date: transit by Newton steps on the hour angle; sunrise and sunset bisected in the
+ * half-days either side of transit; and the date's sunlit, golden-hour and blue-hour stretches from a 2-minute scan
+ * of [00:00, 24:00] with every boundary bisected. Thresholds are on the GEOMETRIC elevation of the sun's centre
+ * (refraction is folded into −0.8333° for rise and set, as SPA does); golden and blue hour are geometric too.
  */
 export function sunEvents(lat: number, lon: number, d: LocalDay): SunEvents | Err {
   const bad = checkSite(lat, lon, d);
@@ -241,8 +304,6 @@ export function sunEvents(lat: number, lon: number, d: LocalDay): SunEvents | Er
   for (let i = 0; i < 6; i++) transit -= pos(transit).hourAngle / rate;
   const antiBefore = transit - 720;
   const antiAfter = transit + 720;
-  const eMax = elev(transit);
-  const eMin = Math.min(elev(antiBefore), elev(antiAfter));
   /** Where elevation crosses h going up in [antiBefore, transit] (or down in [transit, antiAfter]). */
   const cross = (h: number, rising: boolean): Crossing => {
     let a = rising ? antiBefore : transit;
@@ -262,8 +323,15 @@ export function sunEvents(lat: number, lon: number, d: LocalDay): SunEvents | Er
   };
   const sunrise = cross(RISE_SET_ALT, true);
   const sunset = cross(RISE_SET_ALT, false);
-  const daylight: SunEvents["daylight"] = sunrise !== null && sunset !== null ? "normal" : eMax < RISE_SET_ALT ? "polar night" : eMin > RISE_SET_ALT ? "polar day" : "normal";
-  const dayLength = daylight === "polar day" ? 1440 : daylight === "polar night" ? 0 : sunrise !== null && sunset !== null ? sunset - sunrise : 0;
+  const eTransit = elev(transit);
+  const daylight: Daylight =
+    sunrise !== null && sunset !== null ? "normal" : sunrise !== null ? "rises only" : sunset !== null ? "sets only" : eTransit < RISE_SET_ALT ? "polar night" : "polar day";
+  const samples: number[] = [];
+  for (let m = 0; m <= 1440; m += WINDOW_STEP) samples.push(elev(m));
+  const inDate = [antiBefore, transit, antiAfter].filter((m) => m >= 0 && m <= 1440).map(elev);
+  const eMax = Math.max(...samples, ...inDate);
+  const eMin = Math.min(...samples, ...inDate);
+  const lit = bandWindows(elev, samples, RISE_SET_ALT, Infinity);
   return {
     transit,
     maxElevation: eMax,
@@ -271,11 +339,10 @@ export function sunEvents(lat: number, lon: number, d: LocalDay): SunEvents | Er
     sunrise,
     sunset,
     daylight,
-    dayLength,
-    goldenMorning: [cross(GOLDEN_LOW, true), cross(GOLDEN_HIGH, true)],
-    goldenEvening: [cross(GOLDEN_HIGH, false), cross(GOLDEN_LOW, false)],
-    blueMorning: [cross(BLUE_LOW, true), cross(GOLDEN_LOW, true)],
-    blueEvening: [cross(GOLDEN_LOW, false), cross(BLUE_LOW, false)],
+    dayLength: lit.reduce((s, w) => s + (w.end - w.start), 0),
+    lit,
+    golden: bandWindows(elev, samples, GOLDEN_LOW, GOLDEN_HIGH),
+    blue: bandWindows(elev, samples, BLUE_LOW, GOLDEN_LOW),
   };
 }
 
@@ -610,8 +677,11 @@ export function brdf(inp: BrdfInput): BrdfResult | Err {
   const F = schlickF(F0, VoH);
   const specular = D * V * F;
   const diffuse = ((1 - metallic) * base) / Math.PI;
-  const albedoWhite = directionalAlbedo(alpha, thetaV, 1, form);
-  const albedoF = directionalAlbedo(alpha, thetaV, F0, form);
+  // Past 80° the shadowing term changes over a sliver of the half-vector grid: 256 × 128 drifts to 6×10⁻⁴ at 89°
+  // (α = 0.0625), while 1024 × 256 is within 2×10⁻⁵ of 1024 × 1024 there.
+  const [n1, n2] = thetaV > 80 ? [1024, 256] : [BRDF_N1, BRDF_N2];
+  const albedoWhite = directionalAlbedo(alpha, thetaV, 1, form, n1, n2);
+  const albedoF = directionalAlbedo(alpha, thetaV, F0, form, n1, n2);
   if (isErr(albedoWhite)) return albedoWhite;
   if (isErr(albedoF)) return albedoF;
   return {

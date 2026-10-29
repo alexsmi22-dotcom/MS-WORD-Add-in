@@ -119,20 +119,17 @@ describe("sunrise, sunset, transit, golden and blue hour against SPA", () => {
     for (const r of rows) {
       const ev = sunEvents(r.lat, r.lon, dayOf(r.date, r.offset));
       if (isErr(ev)) throw new Error(ev.error);
-      const pairs: Array<[number | null, number | null]> = [
-        [ev.goldenMorning[1], r.crossings["6.0"][0]],
-        [ev.goldenEvening[0], r.crossings["6.0"][1]],
-        [ev.goldenMorning[0], r.crossings["-4.0"][0]],
-        [ev.goldenEvening[1], r.crossings["-4.0"][1]],
-        [ev.blueMorning[0], r.crossings["-6.0"][0]],
-        [ev.blueEvening[1], r.crossings["-6.0"][1]],
-      ];
-      for (const [mine, theirs] of pairs) {
-        if (theirs === null) continue;
-        // The oracle scanned one window centred on transit; a crossing it found must be found here too.
-        expect(mine).not.toBeNull();
-        worst = Math.max(worst, Math.abs((mine as number) - theirs));
-        n++;
+      // Every closed edge of the date's golden and blue windows.
+      const edges = [...ev.golden, ...ev.blue].flatMap((w) => [...(w.openStart ? [] : [w.start]), ...(w.openEnd ? [] : [w.end])]);
+      for (const h of ["6.0", "-4.0", "-6.0"]) {
+        for (const theirs of r.crossings[h]) {
+          // The oracle scanned the half-days either side of transit; a crossing it found on this date must be an edge here.
+          if (theirs === null || theirs <= 0.5 || theirs >= 1439.5) continue;
+          const d = Math.min(...edges.map((m) => Math.abs(m - theirs)));
+          expect({ site: r.site, date: r.date, h, near: d * 60 < 30 }).toEqual({ site: r.site, date: r.date, h, near: true });
+          worst = Math.max(worst, d);
+          n++;
+        }
       }
     }
     // eslint-disable-next-line no-console
@@ -152,8 +149,58 @@ describe("sun: adversarial", () => {
     expect(n.sunrise).toBeNull();
     expect(d.daylight).toBe("polar day");
     expect(d.dayLength).toBe(1440);
-    // In polar night the sun never reaches 6°: no golden hour end; at 78° in December it stays below −6° too.
-    expect(n.goldenMorning[1]).toBeNull();
+    // At 78° in December the sun never climbs into the golden band.
+    expect(n.golden).toEqual([]);
+    expect(n.maxElevation).toBeLessThan(-4);
+  });
+});
+
+// Review B1 and B2 (2026-10-29): days with one horizon crossing, and golden/blue windows with an end never reached.
+// Expected values from scripts/lighting-polar-oracle.py (pvlib 0.16.1 NREL SPA sampled every 30 s, edges by brentq).
+describe("high-latitude days against SPA (review B1, B2)", () => {
+  const P = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "lighting-polar-oracle.json"), "utf8"));
+  type W = { start: number; end: number; openStart: boolean; openEnd: boolean };
+  const cases: Array<{ name: string; lat: number; lon: number; date: string; offset: number; lit: W[]; litMinutes: number; golden: W[]; blue: W[]; minElevation: number; maxElevation: number }> = P.cases;
+  test("the fixture holds the eight cases", () => expect(cases.length).toBe(8));
+  // A 0.007° position error is seconds of time at Tromsø but minutes at 89°, where the sun skims the horizon.
+  const tol = (lat: number): number => (Math.abs(lat) > 80 ? 6 : 0.5);
+  const same = (mine: W[], theirs: W[], lat: number, what: string): void => {
+    expect({ what, count: mine.length, open: mine.map((w) => [w.openStart, w.openEnd]) }).toEqual({ what, count: theirs.length, open: theirs.map((w) => [w.openStart, w.openEnd]) });
+    mine.forEach((w, i) => {
+      expect(Math.abs(w.start - theirs[i].start)).toBeLessThan(tol(lat));
+      expect(Math.abs(w.end - theirs[i].end)).toBeLessThan(tol(lat));
+    });
+  };
+  test.each(cases.map((c) => [c.name, c] as const))("%s: sunlit, golden and blue windows and the minutes of sun match SPA", (_n, c) => {
+    const ev = sunEvents(c.lat, c.lon, dayOf(c.date, c.offset));
+    if (isErr(ev)) throw new Error(ev.error);
+    same(ev.lit, c.lit, c.lat, "lit");
+    same(ev.golden, c.golden, c.lat, "golden");
+    same(ev.blue, c.blue, c.lat, "blue");
+    expect(Math.abs(ev.dayLength - c.litMinutes)).toBeLessThan(2 * tol(c.lat));
+  });
+  test("the reviewer's repros are classified by what the sun does", () => {
+    const may = sunEvents(69.6492, 18.9553, dayOf("2026-05-18", 2)) as { daylight: string; sunrise: number | null; sunset: number | null };
+    expect(may.daylight).toBe("rises only");
+    expect(may.sunrise as number).toBeCloseTo(52, -0.5);
+    expect(may.sunset).toBeNull();
+    const jul = sunEvents(69.6492, 18.9553, dayOf("2026-07-25", 2)) as { daylight: string; sunrise: number | null; sunset: number | null };
+    expect(jul.daylight).toBe("sets only");
+    expect(jul.sunrise).toBeNull();
+    // Sets at 00:37 the next day.
+    expect(jul.sunset as number).toBeGreaterThan(1440);
+    expect(jul.sunset as number).toBeLessThan(1440 + 40);
+    const s89 = sunEvents(-89, 0, dayOf("2026-03-20", 0)) as { daylight: string; sunrise: number | null; sunset: number | null; dayLength: number };
+    expect(s89.daylight).toBe("sets only");
+    expect(s89.sunrise).toBeNull();
+    expect(s89.dayLength).toBeGreaterThan(1200);
+  });
+  test("the 89° S equinox sun stays inside the golden band all day; Tromsø's midwinter window is one stretch", () => {
+    const s89 = sunEvents(-89, 0, dayOf("2026-03-20", 0)) as { golden: W[] };
+    expect(s89.golden).toEqual([{ start: 0, end: 1440, openStart: true, openEnd: true }]);
+    const dec = sunEvents(69.6492, 18.9553, dayOf("2026-12-21", 1)) as { golden: W[] };
+    expect(dec.golden.length).toBe(1);
+    expect(dec.golden[0].openStart || dec.golden[0].openEnd).toBe(false);
   });
   test("a pole, a bad longitude, 30 February and an offset of 20 h are refused by name", () => {
     expect(isErr(sunEvents(90, 0, dayOf("2026-06-21", 0)))).toBe(true);
@@ -285,6 +332,17 @@ describe("microfacet BRDF against an independent numpy implementation", () => {
     // eslint-disable-next-line no-console
     console.log(`albedo vs numpy: worst ${worst.toExponential(2)}`);
     expect(worst).toBeLessThan(1e-4);
+  });
+  test("review M5: grazing views use the finer grid (α 0.0625 and 0.25 at θv = 89°)", () => {
+    // Converged values: 0.94560 (the reviewer's 2000 × 2000 light-direction integral; this function at 1024 × 1024
+    // gives 0.9455991), and 0.9711682 (Gauss–Legendre 8000 × 3000 over the light direction).
+    const a = brdf({ roughness: 0.5, metallic: 0, ior: 1.5, base: 0.5, thetaV: 89, thetaL: 45, phi: 180, form: "correlated" });
+    const b = brdf({ roughness: Math.sqrt(0.25), metallic: 0, ior: 1.5, base: 0.5, thetaV: 89, thetaL: 45, phi: 180, form: "correlated" });
+    const c = brdf({ roughness: 0.25, metallic: 0, ior: 1.5, base: 0.5, thetaV: 89, thetaL: 45, phi: 180, form: "correlated" });
+    if (isErr(a) || isErr(b) || isErr(c)) throw new Error("refused");
+    expect(Math.abs(c.albedoWhite - 0.9455991)).toBeLessThan(1e-4);
+    expect(Math.abs(b.albedoWhite - 0.9711682)).toBeLessThan(5e-5);
+    expect(Math.abs(a.albedoWhite - 0.9711682)).toBeLessThan(5e-5);
   });
   test("white furnace: smooth surfaces keep nearly all energy, rough ones lose a visible share", () => {
     const smooth = directionalAlbedo(0.045 * 0.045, 0, 1, "correlated") as number;

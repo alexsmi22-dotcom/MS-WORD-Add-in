@@ -45,7 +45,8 @@ import {
   sunEvents,
   sunPath,
   toneMap,
-  type Crossing,
+  type DayWindow,
+  type SunEvents,
   type LocalDay,
   type SmithForm,
   type ToneCurve,
@@ -169,8 +170,41 @@ function readClock(raw: string): number | string {
   return h * 60 + mi + s / 60;
 }
 
-/** "+1", "−5", "5.5", "+05:30", "UTC+1" → hours east of UTC. */
+/**
+ * A latitude or longitude as a map or GPS writes it: decimal degrees (51.5074, −0.1278), with a hemisphere letter
+ * before or after (33.87 S, W 0.1278), or degrees, minutes and seconds (33°52′ S, 51°30'26"N). A hemisphere letter
+ * is read BEFORE the unit layer, which would otherwise take S, N and W for siemens, newtons and watts. A letter of
+ * the other axis (E on a latitude), a sign together with a letter, or minutes and seconds of 60 or more are refused by
+ * name. Anything else (0.9 rad) goes to the unit layer as an angle.
+ */
+function readCoordinate(raw: string, axis: "lat" | "lon", u: ReturnType<typeof unitReader>, key: string, label: string): number {
+  const t = (raw ?? "").trim().replace(/[−–]/g, "-").replace(/[′’]/g, "'").replace(/[″”]/g, '"').replace(/''/g, '"');
+  const m = /^([NSEW])?\s*([+-])?\s*(\d+(?:\.\d+)?)\s*(?:°|deg\b|d\b)?\s*(?:(\d+(?:\.\d+)?)\s*')?\s*(?:(\d+(?:\.\d+)?)\s*")?\s*([NSEW])?$/i.exec(t);
+  const hasDms = m !== null && (m[4] !== undefined || m[5] !== undefined);
+  const letter = m ? (m[1] ?? m[6]) : undefined;
+  if (!m || (!letter && !hasDms) || (m[1] && m[6])) return u.req(key, "°", "°", label);
+  const L = letter ? letter.toUpperCase() : "";
+  if (L && (axis === "lat" ? !/[NS]/.test(L) : !/[EW]/.test(L))) {
+    u.errors.push(`${label}: "${raw.trim()}" has the hemisphere letter ${L}, which belongs to ${axis === "lat" ? "a longitude (use N or S)" : "a latitude (use E or W)"}.`);
+    return NaN;
+  }
+  if (L && m[2]) {
+    u.errors.push(`${label}: "${raw.trim()}" has both a sign and a hemisphere letter; give one (−33.87 or 33.87 S).`);
+    return NaN;
+  }
+  const min = m[4] !== undefined ? Number(m[4]) : 0;
+  const sec = m[5] !== undefined ? Number(m[5]) : 0;
+  if (min >= 60 || sec >= 60) {
+    u.errors.push(`${label}: "${raw.trim()}" has ${min >= 60 ? "minutes" : "seconds"} of 60 or more.`);
+    return NaN;
+  }
+  const v = Number(m[3]) + min / 60 + sec / 3600;
+  return (m[2] === "-" || L === "S" || L === "W" ? -1 : 1) * v;
+}
+
+/** "+1", "−5", "5.5", "+05:30", "UTC+1", and a bare "UTC" or "GMT" (0) → hours east of UTC. */
 function readOffset(raw: string): number | string {
+  if (/^\s*(UTC|GMT|Z)\s*$/i.test(raw)) return 0;
   const t = raw.trim().replace(/[−–]/g, "-").replace(/^(UTC|GMT)\s*/i, "");
   if (!t) return "UTC offset: this field is required (0 for UTC, +1 for BST or CET, −5 for EST).";
   const hm = /^([+-]?)(\d{1,2}):(\d{2})$/.exec(t);
@@ -195,16 +229,43 @@ const hm = (minutes: number): string => {
   return `${Math.floor(t / 60)} h ${String(t % 60).padStart(2, "0")} min`;
 };
 
-/** A twilight window [start, end] in words, with the reason when one end is never reached. */
-function windowText(a: Crossing, b: Crossing, lowDeg: number, highDeg: number, eMin: number, eMax: number): string {
-  const lo = `${s4(lowDeg)}°`;
-  const hi = `${s4(highDeg)}°`;
-  if (a !== null && b !== null) return `${when(Math.min(a, b))} to ${when(Math.max(a, b))}`;
-  if (eMax < lowDeg) return `none (the sun never rises to ${lo})`;
-  if (eMin > highDeg) return `none (the sun never sinks below ${hi})`;
-  if (a === null && b !== null) return eMin > lowDeg ? `ends ${when(b)}; the sun never sinks below ${lo}, so it has no start` : `${when(b)}`;
-  if (a !== null && b === null) return eMax < highDeg ? `from ${when(a)}; the sun never climbs above ${hi}, so it lasts through midday` : `${when(a)}`;
-  return "none";
+/**
+ * The date's stretches inside a band in words: "all day" when the sun never leaves it; a stretch that began before
+ * 00:00 reads "until X (from the night before)", one still running at 24:00 "from X, lasting past midnight"; none at
+ * all says on which side the sun stayed.
+ */
+function windowText(ws: DayWindow[], lowDeg: number, highDeg: number, eMin: number, eMax: number): string {
+  if (ws.length === 1 && ws[0].openStart && ws[0].openEnd) return `all day (the sun stays between ${s4(lowDeg)}° and ${s4(highDeg)}°)`;
+  if (!ws.length) return eMax < lowDeg ? `none (the sun stays below ${s4(lowDeg)}°)` : eMin > highDeg ? `none (the sun stays above ${s4(highDeg)}°)` : "none";
+  return ws
+    .map((w) => (w.openStart ? `until ${clock(w.end)} (from the night before)` : w.openEnd ? `from ${clock(w.start)}, lasting past midnight` : `${clock(w.start)} to ${clock(w.end)}`))
+    .join("; ");
+}
+
+/** "none" for a sunrise or sunset the day does not have, with the reason the classification gives. */
+function noCrossing(kind: "Sunrise" | "Sunset", ev: SunEvents): string {
+  if (ev.daylight === "polar day") return "none: polar day";
+  if (ev.daylight === "polar night") return "none: polar night";
+  return kind === "Sunrise" ? "none: the sun was already up (it did not set the night before)" : "none: the sun stays up through the night";
+}
+
+/** The rise/set sentence of the reading, for every classification. */
+function riseSetText(ev: SunEvents): string {
+  const lit = ev.dayLength >= 1439.5 ? "24 h" : hm(ev.dayLength);
+  switch (ev.daylight) {
+    case "polar day":
+      return "It is polar day: the sun does not set.";
+    case "polar night":
+      return "It is polar night: the sun does not rise.";
+    case "rises only":
+      return `The sun rises at ${when(ev.sunrise as number)} and does not set again before the next day; ${lit} of sun on this date.`;
+    case "sets only":
+      return `The sun was already up at the start of the day and sets at ${when(ev.sunset as number)}; ${lit} of sun on this date.`;
+    default: {
+      const eve = ev.golden.find((w) => w.start > ev.transit && !w.openStart);
+      return `Sunrise ${when(ev.sunrise as number)}, sunset ${when(ev.sunset as number)}${eve ? `, evening golden hour from ${clock(eve.start)}` : ""}.`;
+    }
+  }
 }
 
 const sunCalc: LightCalc = {
@@ -218,24 +279,23 @@ const sunCalc: LightCalc = {
     "−4°) and blue hour (−4° to −6°), and the length and direction of the shadow an object of height h casts on level " +
     "ground. Drawn: the day's sun path and a plan of the shadow across the day.",
   fields: [
-    { key: "lat", label: "Latitude (°, north positive)", default: "51.5074", kind: "text" },
-    { key: "lon", label: "Longitude (°, east positive)", default: "-0.1278", kind: "text" },
+    { key: "lat", label: "Latitude (°, north positive; or 51°30′ N)", default: "51.5074", kind: "text" },
+    { key: "lon", label: "Longitude (°, east positive; or 0.1278 W)", default: "-0.1278", kind: "text" },
     { key: "date", label: "Date (YYYY-MM-DD)", default: "2026-06-21", kind: "text" },
     { key: "time", label: "Local clock time (24-hour, HH:MM)", default: "15:00", kind: "text" },
     { key: "tz", label: "UTC offset of that clock (hours; +1 for BST)", default: "+1", kind: "text" },
     { key: "h", label: "Object height h", default: "1.8 m", kind: "text" },
     { key: "p", label: "Air pressure (for refraction)", default: "1013.25 hPa", kind: "text" },
-    { key: "temp", label: "Air temperature (°C, for refraction)", default: "12", kind: "text" },
+    { key: "temp", label: "Air temperature (for refraction)", default: "12 °C", kind: "text" },
   ],
   compute: (r) => {
     const u = unitReader(r);
-    const lat = u.req("lat", "°", "°", "Latitude");
-    const lon = u.req("lon", "°", "°", "Longitude");
+    const lat = readCoordinate(r("lat"), "lat", u, "lat", "Latitude");
+    const lon = readCoordinate(r("lon"), "lon", u, "lon", "Longitude");
     const h = u.req("h", "m", "m", "Object height");
     const pHpa = u.req("p", "hPa", "hPa", "Air pressure");
+    const temp = u.req("temp", "°C", "°C", "Air temperature");
     if (u.errors.length) return refuse(u.errors.join("\n"));
-    const temp = plain(r("temp"));
-    if (!Number.isFinite(temp)) return refuse(`Air temperature: "${(r("temp") ?? "").trim()}" is not a number of degrees Celsius.`);
     const date = readDate(r("date") ?? "");
     if (typeof date === "string") return refuse(date);
     const minutes = readClock(r("time") ?? "");
@@ -258,10 +318,7 @@ const sunCalc: LightCalc = {
     const at = `${longDate(day)} at ${clock(minutes)} (${offsetText(offset)})`;
     const lines: EngReportLine[] = [];
     // The reading, from this run's numbers.
-    const riseSet =
-      ev.daylight === "polar day" ? "It is polar day: the sun does not set." :
-      ev.daylight === "polar night" ? "It is polar night: the sun does not rise." :
-      `Sunrise ${when(ev.sunrise as number)}, sunset ${when(ev.sunset as number)}${ev.goldenEvening[0] !== null ? `, evening golden hour from ${when(ev.goldenEvening[0])}` : ""}.`;
+    const riseSet = riseSetText(ev);
     if (sh) {
       lines.push(`On ${at} the sun is ${s4(pos.apparentElevation, 3)}° above the horizon in the ${compassWords(pos.azimuth)} (azimuth ${s4(pos.azimuth, 4)}°); a ${s4(h, 3)} m object casts a ${s4(sh.length, 3)} m shadow pointing ${compassWords(sh.bearing)}. ${riseSet}`);
     } else {
@@ -275,13 +332,11 @@ const sunCalc: LightCalc = {
       ["Elevation, geometric", `${s6(pos.elevation)}°`],
       ["Azimuth (clockwise from north)", `${s6(pos.azimuth)}° (${compass(pos.azimuth)})`],
       ["Solar noon", `${when(ev.transit)}, sun at ${s4(noon.elevation, 4)}°`],
-      ["Sunrise", ev.sunrise !== null ? when(ev.sunrise) : ev.daylight === "polar day" ? "none: polar day" : "none: polar night"],
-      ["Sunset", ev.sunset !== null ? when(ev.sunset) : ev.daylight === "polar day" ? "none: polar day" : "none: polar night"],
-      ["Day length", ev.daylight === "polar day" ? "24 h (polar day)" : ev.daylight === "polar night" ? "0 h (polar night)" : hm(ev.dayLength)],
-      ["Morning blue hour (−6° to −4°)", windowText(ev.blueMorning[0], ev.blueMorning[1], BLUE_LOW, GOLDEN_LOW, ev.minElevation, ev.maxElevation)],
-      ["Morning golden hour (−4° to 6°)", windowText(ev.goldenMorning[0], ev.goldenMorning[1], GOLDEN_LOW, GOLDEN_HIGH, ev.minElevation, ev.maxElevation)],
-      ["Evening golden hour (6° to −4°)", windowText(ev.goldenEvening[0], ev.goldenEvening[1], GOLDEN_LOW, GOLDEN_HIGH, ev.minElevation, ev.maxElevation)],
-      ["Evening blue hour (−4° to −6°)", windowText(ev.blueEvening[0], ev.blueEvening[1], BLUE_LOW, GOLDEN_LOW, ev.minElevation, ev.maxElevation)],
+      ["Sunrise", ev.sunrise !== null ? when(ev.sunrise) : noCrossing("Sunrise", ev)],
+      ["Sunset", ev.sunset !== null ? when(ev.sunset) : noCrossing("Sunset", ev)],
+      ["Sun up on this date", ev.daylight === "polar day" ? "24 h (polar day)" : ev.daylight === "polar night" ? "0 h (polar night)" : ev.dayLength >= 1439.5 ? "24 h" : hm(ev.dayLength)],
+      ["Blue hour (−6° to −4°)", windowText(ev.blue, BLUE_LOW, GOLDEN_LOW, ev.minElevation, ev.maxElevation)],
+      ["Golden hour (−4° to 6°)", windowText(ev.golden, GOLDEN_LOW, GOLDEN_HIGH, ev.minElevation, ev.maxElevation)],
     ];
     if (sh) {
       rows.push([`Shadow of the ${s4(h, 4)} m object`, `${s6(sh.length)} m (${s4(sh.ratio, 4)} × its height), bearing ${s4(sh.bearing, 4)}° (${compass(sh.bearing)})`]);
@@ -295,7 +350,7 @@ const sunCalc: LightCalc = {
       "Golden hour is taken as the sun between 6° above and 4° below the horizon, blue hour between 4° and 6° below (civil twilight ends at −6°): the photographers' convention. Sources differ by a degree or two, so treat the edges as soft. These windows and sunrise/sunset use the geometric elevation of the sun's centre; sunrise and sunset are where it is 0.8333° below the horizon (the sun's radius plus standard refraction, as NREL SPA defines them).",
     );
     lines.push(
-      "Assumes: Meeus (1998) low-accuracy solar coordinates with ΔT from Espenak & Meeus (2006), hour angle from apparent sidereal time, topocentric parallax, and SPA's refraction formula at the pressure and temperature given. Checked against NREL SPA (pvlib 0.16.1) on 336 cases at 8 sites from 1990 to 2075: elevation within 0.007°, azimuth within 0.007° of arc, sunrise and sunset within 5 s of SPA's own elevation crossing. Near the horizon real refraction varies by tenths of a degree with the weather, so rise and set times are good to about a minute. Times are clock times at the typed UTC offset: daylight saving is not applied for you. Shadows assume a vertical object on level, open ground.",
+      "Assumes: Meeus (1998) low-accuracy solar coordinates with ΔT from Espenak & Meeus (2006), hour angle from apparent sidereal time, topocentric parallax, and SPA's refraction formula at the pressure and temperature given. Checked against NREL SPA (pvlib 0.16.1) on 336 cases at 8 sites from 1990 to 2075: elevation within 0.007°, azimuth within 0.007° of arc, sunrise and sunset within 5 s of SPA's own elevation crossing. Near the poles the sun meets the horizon at a grazing angle, so the same small position error moves rise and set by minutes (about 3 min at 89°). Near the horizon real refraction varies by tenths of a degree with the weather, so rise and set times are good to about a minute. Times are clock times at the typed UTC offset: daylight saving is not applied for you. Shadows assume a vertical object on level, open ground.",
     );
     // Shadow tips over the day, every 10 minutes while the sun is up.
     const tips: Array<{ length: number; bearing: number; minute: number }> = [];
@@ -315,7 +370,7 @@ const sunCalc: LightCalc = {
     if (sh) outputs.push({ key: "shadow", label: "Shadow length", value: sh.length, unit: "m" }, { key: "bearing", label: "Shadow bearing", value: sh.bearing, unit: "°" });
     return finish(lines, u.conversions, [
       plot(sunPathChartSvg(path, { minute: minutes, elevation: pos.apparentElevation, azimuth: pos.azimuth }, noon), `Sun path on ${longDate(day)} at latitude ${s4(lat, 6)}°, longitude ${s4(lon, 6)}°`, "Sun elevation against azimuth across the day, with the horizon, solar noon and the chosen time marked"),
-      plot(shadowPlanSvg(h, "m", sh ? { length: sh.length, bearing: sh.bearing } : null, tips, 5), `Plan of the shadow (north up): the shadow at ${clock(minutes)} and its tip across the day`, "Plan view of a vertical object at the origin, its shadow now as a line and the path of the shadow tip during the day"),
+      plot(shadowPlanSvg(h, "m", sh ? { length: sh.length, bearing: sh.bearing } : null, tips, 5), `Plan of the shadow (north up): the shadow at ${clock(minutes)} and its tip across the day while it is under five heights long`, "Plan view of a vertical object at the origin, its shadow now as a line and the path of the shadow tip during the day"),
     ], outputs);
   },
 };
@@ -415,14 +470,13 @@ const falloffCalc: LightCalc = {
     const flux = u.req("flux", "lm", "lm", "Luminous flux");
     const cone = u.req("cone", "°", "°", "Spot cone angle");
     const watts = u.opt("watts", "W", "W", "Electrical power");
+    // The efficacy is read through the unit layer (100, 100 lm/W); it is needed only with a power.
+    const eff = watts === null ? null : u.req("eff", "lm/W", "lm/W", "Luminous efficacy");
     if (u.errors.length) return refuse(u.errors.join("\n"));
     const stops = plain(r("stops"));
     if (!Number.isFinite(stops)) return refuse(`Change in stops: "${(r("stops") ?? "").trim()}" is not a number.`);
     const ratio = plain(r("ratio"));
     if (!Number.isFinite(ratio) || ratio < 1) return refuse(`Key:fill ratio: "${(r("ratio") ?? "").trim()}" must be a number of at least 1 (the key is the brighter side: 4 means 4:1).`);
-    const effRaw = (r("eff") ?? "").trim();
-    const eff = watts === null ? null : plain(effRaw);
-    if (watts !== null && (eff === null || !Number.isFinite(eff))) return refuse(`Luminous efficacy: "${effRaw}" is not a number of lumens per watt (needed with an electrical power).`);
     const f = falloff({ d1, d2, diameter: dia, flux, coneDeg: cone, watts, efficacy: eff });
     if (isErr(f)) return refuse(f.error);
     const move = distanceForStops(d1, stops);
@@ -431,7 +485,7 @@ const falloffCalc: LightCalc = {
     const lines: EngReportLine[] = [];
     const bgWord = f.stops >= 0 ? `${s4(f.stops, 3)} stops less light (${s4(f.ratioBackground, 3)} ×)` : `${s4(-f.stops, 3)} stops more light (${s4(f.ratioBackground, 3)} ×)`;
     lines.push(
-      `The background at ${s4(d2)} m gets ${bgWord} than the subject at ${s4(d1)} m. To make the subject ${s4(Math.abs(stops), 3)} stop${Math.abs(stops) === 1 ? "" : "s"} ${stops >= 0 ? "brighter" : "darker"}, move the light to ${s4(move)} m. A ${s4(ratio)}:1 key:fill ratio is ${s4(ratioStops, 3)} stops. Treating the ${s4(dia)} m light as a point at ${s4(d1)} m overstates it by ${pct(f.pointError)}; that error is 1 % at ${s4(f.onePercentDistance)} m (five diameters).`,
+      `The background at ${s4(d2)} m gets ${bgWord} than the subject at ${s4(d1)} m. ${stops === 0 ? "A change of 0 stops leaves the light where it is." : `To make the subject ${s4(Math.abs(stops), 3)} stop${Math.abs(stops) === 1 ? "" : "s"} ${stops > 0 ? "brighter" : "darker"}, move the light to ${s4(move)} m.`} A ${s4(ratio)}:1 key:fill ratio is ${s4(ratioStops, 3)} stops. Treating the ${s4(dia)} m light as a point at ${s4(d1)} m overstates it by ${pct(f.pointError)}; that error is 1 % at ${s4(f.onePercentDistance)} m (five diameters).`,
     );
     lines.push(...engEq("rend-falloff"));
     const rows: string[][] = [
@@ -524,7 +578,7 @@ const brdfCalc: LightCalc = {
     const kind = v.metal === 0 ? `this dielectric (F0 = ${s4(b.F0, 3)})` : v.metal === 1 ? `this metal (F0 = ${s4(b.F0, 3)}, the base colour)` : `this ${s4(v.metal * 100, 3)} % metallic mix (F0 = ${s4(b.F0, 3)})`;
     const loss = 1 - b.albedoWhite;
     lines.push(
-      `At roughness ${s4(b.roughnessUsed, 3)} (α = ${s4(b.alpha, 3)}), view ${s4(tv, 3)}° and light ${s4(tl, 3)}° from the normal, ${kind} has a specular BRDF of ${s4(b.specular, 4)} sr⁻¹${b.diffuse > 0 ? ` plus ${s4(b.diffuse, 3)} sr⁻¹ diffuse` : ""}. A white furnace at this view angle returns ${pct(b.albedoWhite, 4)} of the light, so single-scattering GGX ${loss > 0.005 ? `loses ${pct(loss, 3)} to the bounces between microfacets it does not model` : "is close to energy-conserving here"}.`,
+      `At roughness ${s4(b.roughnessUsed, 3)} (α = ${s4(b.alpha, 3)}), view ${s4(tv, 6)}° and light ${s4(tl, 6)}° from the normal, ${kind} has a specular BRDF of ${s4(b.specular, 4)} sr⁻¹${b.diffuse > 0 ? ` plus ${s4(b.diffuse, 3)} sr⁻¹ diffuse` : ""}. A white furnace at this view angle returns ${pct(b.albedoWhite, 4)} of the light, so single-scattering GGX ${loss > 0.005 ? `loses ${pct(loss, 3)} to the bounces between microfacets it does not model` : "is close to energy-conserving here"}.`,
     );
     if (b.floored) lines.push(`Roughness ${s4(v.r, 3)} is below ${MIN_ROUGHNESS} and was raised to it (α = ${s4(b.alpha, 4)}), the clamp Filament applies: at r = 0 the GGX lobe is a delta function, a mirror, with no finite BRDF value to report.`);
     lines.push(...engEq("rend-brdf"));
@@ -546,7 +600,7 @@ const brdfCalc: LightCalc = {
     if (b.fresnelExactAtVoH !== null) rows.push(["Exact unpolarised Fresnel at the same v·h", `${s6(b.fresnelExactAtVoH)} (Schlick ${b.F >= b.fresnelExactAtVoH ? "+" : "−"}${pct(Math.abs(b.F / b.fresnelExactAtVoH - 1), 3)})`]);
     lines.push(tableLine("Cook–Torrance terms", rows));
     lines.push(
-      "Assumes: single scattering off a GGX microfacet surface (multiple bounces between microfacets are not modelled, which is the albedo shortfall), an isotropic surface, Schlick's approximation to Fresnel, one colour channel at a time (run the R, G and B base colours separately for a metal), and a Lambert diffuse lobe (1 − metallic)·base/π with no Fresnel weighting between the two. The albedo is integrated over the half-vector on a 256 × 128 grid (within 5×10⁻⁵ of an independent 400 × 720 Gauss–Legendre integral over the light direction).",
+      "Assumes: single scattering off a GGX microfacet surface (multiple bounces between microfacets are not modelled, which is the albedo shortfall), an isotropic surface, Schlick's approximation to Fresnel, one colour channel at a time (run the R, G and B base colours separately for a metal), and a Lambert diffuse lobe (1 − metallic)·base/π with no Fresnel weighting between the two. The albedo is integrated over the half-vector on a graded grid, 256 × 128 up to θv = 80° (within 5×10⁻⁵ of an independent Gauss–Legendre integral over the light direction) and 1024 × 256 beyond (within 10⁻⁴ up to θv = 89.9°).",
     );
     const outputs: EngOutput[] = [
       { key: "D", label: "D (GGX)", value: b.D, unit: "sr⁻¹" },
@@ -558,8 +612,8 @@ const brdfCalc: LightCalc = {
       { key: "albedoF", label: "Directional albedo with F0", value: b.albedoF, unit: "" },
     ];
     return finish(lines, u.conversions, [
-      plot(brdfLobeSvg(tv, b.F0, form, b.roughnessUsed), `Specular lobe f·cos θl in the plane of incidence, view at ${s4(tv, 3)}° (each roughness normalised to its own peak)`, "Polar plot over the surface of the specular reflection lobe for several roughness values, narrow and tall for smooth surfaces and broad for rough ones, with the view direction drawn"),
-      plot(brdfAlbedoSvg(tv, b.F0, form, b.roughnessUsed, b.albedoWhite, b.albedoF), `Directional albedo against roughness at θv = ${s4(tv, 3)}°: the white-furnace shortfall grows with roughness`, "Directional albedo against perceptual roughness for F equal to one and for the material's F0, falling below one as roughness rises"),
+      plot(brdfLobeSvg(tv, b.F0, form, b.roughnessUsed), `Specular lobe f·cos θl in the plane of incidence, view at ${s4(tv, 6)}° (each roughness normalised to its own peak)`, "Polar plot over the surface of the specular reflection lobe for several roughness values, narrow and tall for smooth surfaces and broad for rough ones, with the view direction drawn"),
+      plot(brdfAlbedoSvg(tv, b.F0, form, b.roughnessUsed, b.albedoWhite, b.albedoF), `Directional albedo against roughness at θv = ${s4(tv, 6)}°: the white-furnace shortfall grows with roughness`, "Directional albedo against perceptual roughness for F equal to one and for the material's F0, falling below one as roughness rises"),
     ], outputs);
   },
 };
@@ -709,7 +763,7 @@ const toneCalc: LightCalc = {
     const xTop = Math.max(...exposed);
     const display = Math.log2(1000);
     lines.push(
-      `At ${ev >= 0 ? "+" : "−"}${s4(Math.abs(ev), 3)} stops, scene middle grey lands at display ${greyAt}, and the brightest input (${s4(xTop, 4)}) at ${s4(toneMap("aces", xTop, lw), 3)} under the ACES fit. The scene spans ${s4(dr, 3)} stops from ${s4(lmin)} to ${s4(lmax)} cd/m²; an SDR display of 100 cd/m² with a 0.1 cd/m² black shows about ${s4(display, 3)} stops, so ${dr > display ? `${s4(dr - display, 3)} stops must be compressed into the toe and shoulder` : "it fits without compression"}.`,
+      `At ${ev >= 0 ? "+" : "−"}${s4(Math.abs(ev), 3)} stops, scene middle grey lands at display ${greyAt}, and the brightest value after exposure (${s4(xTop, 4)}) at ${s4(toneMap("aces", xTop, lw), 3)} under the ACES fit. The scene spans ${s4(dr, 3)} stops from ${s4(lmin)} to ${s4(lmax)} cd/m²; an SDR display of 100 cd/m² with a 0.1 cd/m² black shows about ${s4(display, 3)} stops, so ${dr > display ? `${s4(dr - display, 3)} stops must be compressed into the toe and shoulder` : "it fits without compression"}.`,
     );
     lines.push(...engEq("rend-tonemap"));
     const rows: string[][] = [["Scene value", "Exposed", ...CURVES.map((c) => TONE_NAMES[c])]];
@@ -775,12 +829,18 @@ const atmosCalc: LightCalc = {
     if (u.errors.length) return refuse(u.errors.join("\n"));
     const g = plain(r("g"));
     if (!Number.isFinite(g)) return refuse(`Phase asymmetry g: "${(r("g") ?? "").trim()}" is not a number.`);
-    const toks = (r("lams") ?? "").trim().split(/[\s,;]+/).filter(Boolean);
+    // Each entry is a number with an optional unit, spaced or not ("0.55 µm 700", "450nm, 0.65 µm"); a bare number is
+    // nm. Repeats are dropped: one wavelength twice is still one wavelength.
+    let rest = (r("lams") ?? "").trim().replace(/[−–]/g, "-");
     const lams: number[] = [];
-    for (const t of toks) {
-      const m = parseMeasured(t.replace(/[−–]/g, "-"), "nm");
-      if ("error" in m) return refuse(`Wavelengths: "${t}": ${m.error}`);
-      lams.push(m.inTarget);
+    while (rest.length) {
+      const m = /^[\s,;]*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*([A-Za-zµμÅ]+)?[\s,;]*/.exec(rest);
+      if (!m || !m[0]) return refuse(`Wavelengths: "${rest}" does not start with a number.`);
+      rest = rest.slice(m[0].length);
+      const v = parseMeasured(m[2] ? `${m[1]} ${m[2]}` : m[1], "nm");
+      if ("error" in v) return refuse(`Wavelengths: "${m[0].trim()}": ${v.error}`);
+      if (!lams.some((x) => Math.abs(x - v.inTarget) <= 1e-9 * Math.abs(x))) lams.push(v.inTarget);
+      if (lams.length > 12) return refuse("Wavelengths: twelve at most.");
     }
     const a = atmosphere({ sigma: sigmaKm === null ? null : sigmaKm / 1000, visibility: visM, distance: d, elevationDeg: elev, pressureHpa: p, g, thetaDeg: theta, lambdas: lams });
     if (isErr(a)) return refuse(a.error);
@@ -791,7 +851,7 @@ const atmosCalc: LightCalc = {
     const medium = a.sigma === 0
       ? `With σ = 0 the medium is clear: all of the light crosses the ${s4(d)} m path and visibility has no limit from extinction.`
       : `Over ${s4(d)} m of this medium (σ = ${s4(sigKm, 4)} per km, visibility ${s4((a.visibility as number) / 1000, 4)} km) ${pct(a.transmittance)} of the light gets through.`;
-    const colour = a.beam.length > 1
+    const colour = a.beam.length > 1 && longest.lambdaNm > shortest.lambdaNm
       ? ` With the sun ${s4(elev, 3)}° up (air mass ${s4(a.airMass, 3)}), Rayleigh scattering alone passes ${pct(shortest.T)} of ${s4(shortest.lambdaNm)} nm but ${pct(longest.T)} of ${s4(longest.lambdaNm)} nm, so the direct sun ${longest.T > shortest.T * 1.05 ? "shifts toward red" : "stays nearly white"}; the same scattering sends ${s4(a.rayleighRatio, 3)} × more ${s4(shortest.lambdaNm)} nm than ${s4(longest.lambdaNm)} nm light into the sky, which is why it is blue.`
       : ` With the sun ${s4(elev, 3)}° up (air mass ${s4(a.airMass, 3)}), Rayleigh scattering passes ${pct(shortest.T)} of ${s4(shortest.lambdaNm)} nm in the direct beam.`;
     lines.push(medium + colour);

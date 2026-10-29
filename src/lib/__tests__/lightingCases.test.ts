@@ -249,3 +249,83 @@ describe("atmosphere and fog", () => {
     expect(firstLine(o)).toMatch(/550 nm/);
   });
 });
+
+// Review 2026-10-29: each finding's repro, as the reviewer ran it through the registry.
+describe("review findings (B1, B2, M1–M4, N1–N3, N6)", () => {
+  const sun = (over: Record<string, string>) => run("rend-sun-shadow", over);
+  const row = (o: AnalyzeOutput, name: string): string => {
+    for (const b of o.blocks ?? []) if (b.kind === "table") for (const r of b.rows) if (r[0].startsWith(name)) return r[1];
+    throw new Error(`no row ${name}`);
+  };
+  test("B1: Tromsø 18 May rises at 00:52 and does not set; never '00:00' for a missing crossing", () => {
+    const o = sun({ lat: "69.65", lon: "18.96", date: "2026-05-18", time: "12:00", tz: "2" });
+    expect(firstLine(o)).toMatch(/rises at 00:5\d and does not set/);
+    expect(row(o, "Sunset")).toMatch(/stays up through the night/);
+    expect(o.text).not.toMatch(/sunset 00:00|Sunrise 00:00/);
+    expect(out("sun", o, "dayLength")).toBeGreaterThan(23);
+  });
+  test("B1: Tromsø 25 July does not rise and sets at 00:37 the next day", () => {
+    const o = sun({ lat: "69.65", lon: "18.96", date: "2026-07-25", time: "12:00", tz: "2" });
+    expect(firstLine(o)).toMatch(/already up .* sets at 00:3\d \(the next day\)/);
+    expect(row(o, "Sunrise")).toMatch(/already up/);
+    expect(row(o, "Sunrise")).not.toMatch(/polar/);
+  });
+  test("B1/B2: 89° S at the March equinox sets at about 21:13, does not rise, and is in golden light all day", () => {
+    const o = sun({ lat: "-89", lon: "0", date: "2026-03-20", time: "12:00", tz: "0" });
+    expect(firstLine(o)).toMatch(/sets at 21:1\d/);
+    expect(out("sun", o, "dayLength")).toBeGreaterThan(20);
+    expect(row(o, "Golden hour")).toMatch(/^all day/);
+  });
+  test("B2: Tromsø midwinter golden hour is one stretch 10:30 to 12:55; midsummer evening runs past midnight", () => {
+    const dec = sun({ lat: "69.65", lon: "18.96", date: "2026-12-21", time: "12:00", tz: "1" });
+    expect(row(dec, "Golden hour")).toMatch(/^10:3\d to 12:5\d$/);
+    const jun = sun({ lat: "69.65", lon: "18.96", date: "2026-06-21", time: "12:00", tz: "2" });
+    expect(row(jun, "Golden hour")).toMatch(/until 0\d:\d\d \(from the night before\); from 22:3\d, lasting past midnight/);
+  });
+  test("M1: hemisphere letters and degrees-minutes-seconds are read; a wrong-axis letter is refused by name", () => {
+    const a = sun({ lat: "33.8688 S", lon: "151.2093 E", date: "2026-06-21", time: "12:00", tz: "+10" });
+    const b = sun({ lat: "-33.8688", lon: "151.2093", date: "2026-06-21", time: "12:00", tz: "+10" });
+    expect(out("sun", a, "elevation")).toBeCloseTo(out("sun", b, "elevation"), 9);
+    const c = sun({ lat: "51.5 N", lon: "0.1278 W" });
+    const d = sun({ lat: "51.5", lon: "-0.1278" });
+    expect(out("sun", c, "azimuth")).toBeCloseTo(out("sun", d, "azimuth"), 9);
+    const e = sun({ lat: "33°52' S", lon: "151°12′33″ E", date: "2026-06-21", time: "12:00", tz: "+10" });
+    const f = sun({ lat: String(-(33 + 52 / 60)), lon: String(151 + 12 / 60 + 33 / 3600), date: "2026-06-21", time: "12:00", tz: "+10" });
+    expect(out("sun", e, "elevation")).toBeCloseTo(out("sun", f, "elevation"), 9);
+    expect(sun({ lat: "33.87 E" }).text).toMatch(/belongs to a longitude/);
+    expect(sun({ lat: "-33.87 S" }).text).toMatch(/both a sign and a hemisphere letter/);
+    expect(sun({ lat: "33°75' S" }).text).toMatch(/minutes of 60 or more/);
+  });
+  test("M2: a temperature with its unit is read (12 °C, 54 °F)", () => {
+    const c = sun({ temp: "12 °C" });
+    const f = sun({ temp: "53.6 °F" });
+    expect(c.ok).not.toBe(false);
+    expect(out("sun", f, "elevation")).toBeCloseTo(out("sun", c, "elevation"), 9);
+  });
+  test("M3: an efficacy written 100 lm/W is read", () => {
+    const o = run("rend-falloff", { eff: "100 lm/W" });
+    expect(out("f", o, "lumens")).toBe(10000);
+  });
+  test("M4: spaced and mixed wavelength units are read (0.55 µm 700)", () => {
+    const o = run("rend-atmosphere", { lams: "0.55 µm 700" });
+    expect(o.ok).not.toBe(false);
+    expect(o.outputs?.map((x) => x.key)).toEqual(expect.arrayContaining(["T550", "T700"]));
+  });
+  test("N1: one wavelength typed twice makes no blue-sky comparison of it with itself", () => {
+    const o = run("rend-atmosphere", { lams: "550 550" });
+    expect(o.ok).not.toBe(false);
+    expect(o.text).not.toMatch(/more 550 nm than 550 nm/);
+    expect(o.outputs?.filter((x) => x.key === "T550").length).toBe(1);
+  });
+  test("N2: a UTC offset typed as GMT or UTC is zero", () => {
+    expect(out("sun", sun({ tz: "GMT" }), "elevation")).toBeCloseTo(out("sun", sun({ tz: "0" }), "elevation"), 12);
+    expect(out("sun", sun({ tz: "UTC" }), "elevation")).toBeCloseTo(out("sun", sun({ tz: "0" }), "elevation"), 12);
+  });
+  test("N3: a view of 89.99° is printed as typed, not rounded to 90°", () => {
+    expect(firstLine(run("rend-brdf", { tv: "89.99" }))).toMatch(/view 89\.99°/);
+  });
+  test("N6: no 'brightest input' for an exposed value; zero stops does not say 'brighter'", () => {
+    expect(firstLine(run("rend-tonemap"))).toMatch(/brightest value after exposure/);
+    expect(firstLine(run("rend-falloff", { stops: "0" }))).toMatch(/0 stops leaves the light where it is/);
+  });
+});

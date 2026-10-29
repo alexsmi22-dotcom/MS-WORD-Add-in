@@ -69,9 +69,11 @@ export interface SunPathPoint {
 export function sunPathChartSvg(path: SunPathPoint[], now: { minute: number; elevation: number; azimuth: number }, noon: { elevation: number; azimuth: number }): string {
   if (!Array.isArray(path) || path.length > 3000) throw new Error("sunPathChartSvg: at most 3000 path points.");
   const north = noon.azimuth < 90 || noon.azimuth > 270;
-  const ax = (a: number): number => (north ? (a > 180 ? a - 360 : a) : a);
-  const lo = north ? -180 : 0;
-  const hi = north ? 180 : 360;
+  // Plotted in quarter turns (azimuth/90), so the axis's 1-2-5 tick steps land on 0°, 90°, 180°, 270° (and 45°
+  // between) rather than on 100° and 260°; the labels are written back in degrees.
+  const ax = (a: number): number => (north ? (a > 180 ? a - 360 : a) : a) / 90;
+  const lo = north ? -2 : 0;
+  const hi = north ? 2 : 4;
   const top = Math.max(10, Math.ceil((Math.max(noon.elevation, now.elevation) + 8) / 10) * 10);
   // Night is drawn only down to −20° (below blue hour the path carries no light), so the daylight arc fills the frame;
   // the path below that is left out (a new piece starts where it comes back), not clipped at the frame.
@@ -85,7 +87,7 @@ export function sunPathChartSvg(path: SunPathPoint[], now: { minute: number; ele
       continue;
     }
     const x = ax(p.azimuth);
-    const gap = broken || (prev !== null && Math.abs(x - prev) > 180);
+    const gap = broken || (prev !== null && Math.abs(x - prev) > 2);
     pts.push(gap && pts.length ? { x, y: p.elevation, gap: true } : { x, y: p.elevation });
     prev = x;
     broken = false;
@@ -103,7 +105,11 @@ export function sunPathChartSvg(path: SunPathPoint[], now: { minute: number; ele
     ylabel: "Elevation (°)",
     xLimits: { min: lo, max: hi },
     yLimits: { min: Math.max(-90, bottom), max: Math.min(90, top) },
-    xTickLabel: north ? (v: number) => lsig(((v % 360) + 360) % 360, 4) : undefined,
+    // North-centred: −90 reads 270 and ±180 reads 180 (a compass bearing); south-centred runs 0…360 as it stands.
+    xTickLabel: (v: number) => {
+      const deg = Math.round(v * 90 * 1e6) / 1e6;
+      return lsig(north ? ((deg % 360) + 360) % 360 || 0 : deg, 4);
+    },
     width: W,
     height: H,
     notes,
@@ -131,7 +137,7 @@ export function shadowPlanSvg(h: number, unit: string, now: { length: number; be
       pts.push(prev !== null && t.minute - prev > 30 ? { ...p, gap: true } : p);
       prev = t.minute;
     }
-    series.push({ points: pts, type: "line", color: GREY, label: `shadow tip over the day (to ${lsig(cap, 2)}h)` });
+    series.push({ points: pts, type: "line", color: GREY, label: "shadow tip, all day" });
   }
   const notes: string[] = [];
   if (now) {
@@ -239,9 +245,9 @@ export function falloffChartSvg(Lum: number, R: number, d1: number, d2: number):
   const yLo = discIlluminance(Lum, R, zMax) * 0.6;
   const yHi = discAsPoint(Lum, R, zMin) * 1.5;
   const series: Series[] = [
-    { points: point, type: "line", color: GREY, label: "point source, E = I/z²" },
-    { points: exact, type: "line", color: BLUE, label: "exact disc, E = πL sin²θ" },
-    { points: [{ x: five, y: yLo }, { x: five, y: yHi }], type: "line", color: ORANGE, label: `5 diameters (${lsig(five)} m): 1 % error` },
+    { points: point, type: "line", color: GREY, label: "point source" },
+    { points: exact, type: "line", color: BLUE, label: "exact disc" },
+    { points: [{ x: five, y: yLo }, { x: five, y: yHi }], type: "line", color: ORANGE, label: "5 diameters: 1 %" },
     { points: [{ x: d1, y: discIlluminance(Lum, R, d1) }], type: "scatter", color: RED, label: `subject, ${lsig(d1)} m` },
     { points: [{ x: d2, y: discIlluminance(Lum, R, d2) }], type: "scatter", color: BLACK, label: `background, ${lsig(d2)} m` },
   ];
@@ -287,7 +293,7 @@ export function brdfLobeSvg(thetaV: number, F0: number, form: SmithForm, roughne
   });
   const vx = Math.sin((thetaV * Math.PI) / 180);
   const vy = Math.cos((thetaV * Math.PI) / 180);
-  series.push({ points: [{ x: 0, y: 0 }, { x: 1.1 * vx, y: 1.1 * vy }], type: "line", color: BLACK, label: `view, θv = ${lsig(thetaV, 3)}°` });
+  series.push({ points: [{ x: 0, y: 0 }, { x: 1.1 * vx, y: 1.1 * vy }], type: "line", color: BLACK, label: `view, ${lsig(thetaV, 5)}°` });
   series.push({ points: [{ x: -1.2, y: 0 }, { x: 1.2, y: 0 }], type: "line", color: GREY, label: "surface" });
   return buildPlotSvg(series, {
     xlabel: "In-plane direction (lobe normalised to its peak)",
@@ -360,7 +366,7 @@ export function noiseChartSvg(betaDeg: number, N0: number, sigma0: number, Nt: n
     series.push({ points: mcU, type: "scatter", color: BLUE, label: "seeded MC, uniform" });
     if (mcC.length) series.push({ points: mcC, type: "scatter", color: GREEN, label: "seeded MC, cosine" });
   }
-  series.push({ points: [{ x: N0, y: sigma0 }, { x: Nt, y: sigmaT }], type: "line", color: RED, label: `your render, slope −1/2` });
+  series.push({ points: [{ x: N0, y: sigma0 }, { x: Nt, y: sigmaT }], type: "line", color: RED, label: "your render" });
   const ys = series.flatMap((s) => s.points.map((p) => p.y)).filter((y) => y > 0 && Number.isFinite(y));
   return buildPlotSvg(series, {
     xlabel: "Samples per pixel N",
@@ -393,13 +399,13 @@ export function toneChartSvg(Lw: number, exposed: number[]): string {
       const x = xMin * Math.pow(xMax / xMin, i / 300);
       pts.push({ x, y: toneMap(c, x, Lw) });
     }
-    return { points: pts, type: "line" as const, color: colours[k], label: c === "reinhardExt" ? `${TONE_NAMES[c]}, Lw = ${lsig(Lw)}` : TONE_NAMES[c] };
+    return { points: pts, type: "line" as const, color: colours[k], label: c === "reinhardExt" ? `Reinhard ext., Lw ${lsig(Lw, 3)}` : TONE_NAMES[c] };
   });
   curves.forEach((c, k) => {
     const pts = exposed.filter((x) => x >= xMin && x <= xMax).map((x) => ({ x, y: toneMap(c, x, Lw) }));
     if (pts.length) series.push({ points: pts, type: "scatter", color: colours[k] });
   });
-  series.push({ points: [{ x: 0.18, y: 0 }, { x: 0.18, y: 1 }], type: "line", color: "#bbbbbb", label: "scene middle grey 0.18" });
+  series.push({ points: [{ x: 0.18, y: 0 }, { x: 0.18, y: 1 }], type: "line", color: "#bbbbbb", label: "middle grey 0.18" });
   return buildPlotSvg(series, {
     xlabel: "Scene-linear value after exposure",
     ylabel: "Display-linear value",
@@ -429,7 +435,7 @@ export function beamTransmittanceSvg(airMass: number, pressureRatio: number, mar
   };
   const am1 = kastenYoung(0);
   const series: Series[] = [
-    { points: at(isErr(am1) ? 1 : am1), type: "line", color: GREY, label: "sun overhead (air mass 1)" },
+    { points: at(isErr(am1) ? 1 : am1), type: "line", color: GREY, label: "sun overhead" },
     { points: at(airMass), type: "line", color: ORANGE, label: `air mass ${lsig(airMass, 3)}` },
     { points: marks.map((m) => ({ x: m.lambdaNm, y: m.T })), type: "scatter", color: RED, label: "your wavelengths" },
   ];
@@ -458,10 +464,10 @@ export function hgPolarSvg(g: number, thetaDeg: number): string {
   }
   const rt = henyeyGreenstein(g, thetaDeg) / peak;
   const series: Series[] = [
-    { points: curve, type: "line", color: BLUE, label: `Henyey–Greenstein, g = ${lsig(g, 3)}` },
-    { points: iso, type: "line", color: GREY, label: "isotropic, 1/4π" },
-    { points: [{ x: -1.1, y: 0 }, { x: 1.1, y: 0 }], type: "line", color: "#cccccc", label: "incident light direction" },
-    { points: [{ x: rt * Math.cos((thetaDeg * Math.PI) / 180), y: rt * Math.sin((thetaDeg * Math.PI) / 180) }], type: "scatter", color: RED, label: `θ = ${lsig(thetaDeg, 3)}°` },
+    { points: curve, type: "line", color: BLUE, label: `HG, g = ${lsig(g, 3)}` },
+    { points: iso, type: "line", color: GREY, label: "isotropic" },
+    { points: [{ x: -1.1, y: 0 }, { x: 1.1, y: 0 }], type: "line", color: "#cccccc", label: "incident direction" },
+    { points: [{ x: rt * Math.cos((thetaDeg * Math.PI) / 180), y: rt * Math.sin((thetaDeg * Math.PI) / 180) }], type: "scatter", color: RED, label: `at ${lsig(thetaDeg, 3)}°` },
   ];
   // A near-isotropic phase function is a circle of radius 1: the sideways axis grows to hold it.
   const ySpan = Math.max(0.75, 1.12 * Math.max(...curve.map((p) => Math.abs(p.y)), ...iso.map((p) => Math.abs(p.y))));

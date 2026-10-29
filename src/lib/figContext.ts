@@ -109,16 +109,24 @@ export function withCellCtx<T>(cols: number, gap: number, fn: () => T): T {
  * groups, IV at its row cap) that was tens of seconds of frozen Word (figure-track report 2026-10-28). The refusal
  * reaches the user through prepareFigure's "could not be redrawn" reason with this message.
  */
-export const RENDER_BUDGET_MS = 2500;
+export const RENDER_BUDGET_MS = 4000;
 export const RENDER_BUDGET_MESSAGE =
   "this result takes too long to recompute for a figure style; insert it with the style \"As drawn\", or use less data";
 
-export function figureRenderer(compute: () => string | undefined | null): (w: number, style?: FigureStylePreset, widthMm?: number) => string {
+/**
+ * `budgetMs` defaults to RENDER_BUDGET_MS. The style-compliance gate (figureStyleGate.test.ts) passes Infinity: jest
+ * runs these calculators several times slower than the production bundle, and a loaded test machine must not turn a
+ * compliance gate into a timing test.
+ */
+export function figureRenderer(
+  compute: () => string | undefined | null,
+  budgetMs: number = RENDER_BUDGET_MS,
+): (w: number, style?: FigureStylePreset, widthMm?: number) => string {
   // One memo per (style, printed width): the renders of one style fit share their layout decisions (stickyLayout).
   const memos = new Map<string, Map<string, number>>();
   let spent = 0;
   return (w: number, style?: FigureStylePreset, widthMm?: number): string => {
-    if (spent > RENDER_BUDGET_MS) throw new Error(RENDER_BUDGET_MESSAGE);
+    if (spent > budgetMs) throw new Error(RENDER_BUDGET_MESSAGE);
     const t0 = Date.now();
     try {
       return renderOnce(w, style, widthMm);

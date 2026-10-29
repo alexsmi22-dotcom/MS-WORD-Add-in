@@ -21,7 +21,3 @@ export function unsigned(s: string): string {
   return s.replace(/^[−-]/, "");
 }
 
-/** "raises" / "lowers" / "does not change" from the sign of a value. */
-export function moveWord(v: number, up = "raises", down = "lowers", none = "does not change"): string {
-  return v > 0 ? up : v < 0 ? down : none;
-}

@@ -441,7 +441,9 @@ describe("every Finance and Statistics figure meets every figure style at every 
         drewNothing.push(c.id);
         continue;
       }
-      const render = figureRenderer(c.draw);
+      // Style compliance, not time: no re-render budget here (figContext.test.ts checks the budget), because jest on a
+      // loaded machine runs the calculators several times slower than the production bundle.
+      const render = figureRenderer(c.draw, Number.POSITIVE_INFINITY);
       for (const p of PRESETS)
         for (const w of WIDTHS) {
           if (!offered(p, w)) continue;

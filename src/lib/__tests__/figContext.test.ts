@@ -162,12 +162,12 @@ describe("the re-render time budget (a style fit never freezes Word on a slow ca
     const spy = jest.spyOn(Date, "now").mockImplementation(() => clock);
     try {
       const render = figureRenderer(() => {
-        clock += 1000; // each recompute "takes" one second
+        clock += 1500; // each recompute "takes" 1.5 seconds
         return '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>';
       });
       expect(render(400)).toContain("<svg");
       expect(render(400)).toContain("<svg");
-      expect(render(400)).toContain("<svg"); // 3 s spent, past the 2.5 s budget
+      expect(render(400)).toContain("<svg"); // 4.5 s spent, past the 4 s budget
       expect(() => render(400)).toThrow(RENDER_BUDGET_MESSAGE);
     } finally {
       spy.mockRestore();

@@ -29,6 +29,11 @@ describe("readingProblems (the rules every Finance and Statistics reading keeps)
     expect(readingProblems("GPA raises the odds of a better grade about 16.9× per point (p = 0.0251, R² = 0.34).")).toEqual([]);
   });
 
+  test("company and person abbreviations in names do not count as sentence breaks (R6 #15)", () => {
+    expect(readingProblems("The merger of Acme Inc. Holdings and Birch Co. Partners raises the HHI by 360. That presumption is a screen.")).toEqual([]);
+    expect(readingProblems("One. Two. Three.")).toContain("more than two sentences (3)");
+  });
+
   test("decimals and initials do not count as sentence breaks", () => {
     expect(readingProblems("The U.S. rate of 4.25% gives a forward of 1.2625. That is 0.0026 below the quote.")).toEqual([]);
   });

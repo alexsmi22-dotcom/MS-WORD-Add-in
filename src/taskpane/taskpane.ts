@@ -10956,7 +10956,7 @@ const STAT_CALCS: StatCalc[] = [
       { key: "column", label: "Column to model (blank when the table has one value column)", default: TS_ARIMA_DEFAULTS.column, kind: "text" },
       { key: "p", label: "AR order p", default: TS_ARIMA_DEFAULTS.p, kind: "select", options: ORDER_OPTIONS(5) },
       { key: "d", label: "Differencing d", default: TS_ARIMA_DEFAULTS.d, kind: "select", options: ORDER_OPTIONS(2) },
-      { key: "q", label: "MA order q", default: TS_ARIMA_DEFAULTS.q, kind: "select", options: ORDER_OPTIONS(5) },
+      { key: "q", label: "MA order q (p + q at most 6)", default: TS_ARIMA_DEFAULTS.q, kind: "select", options: ORDER_OPTIONS(5) },
       { key: "trend", label: "Constant or drift", default: TS_ARIMA_DEFAULTS.trend, kind: "select", options: TS_ARIMA_TREND_OPTIONS },
       { key: "h", label: "Forecast horizon (periods, 1–200)", default: TS_ARIMA_DEFAULTS.h, kind: "text" },
     ],

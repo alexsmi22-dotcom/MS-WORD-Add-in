@@ -53,8 +53,9 @@ export function readingProblems(reading: string | undefined): string[] {
   const r = (reading ?? "").trim();
   if (!r) return ["no reading"];
   if (r.length > READING_MAX) out.push(`longer than ${READING_MAX} characters (${r.length})`);
-  // Sentences end at . ! ? followed by a space and a capital; decimals (0.05) and initials (U.S.) do not split.
-  const sentences = r.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(Boolean);
+  // Sentences end at . ! ? followed by a space and a capital; decimals (0.05) and initials (U.S.) do not split, and
+  // nor do the abbreviations company and person names carry ("Acme Inc. Holdings", "Dr. Smith"; bug test R6 #15).
+  const sentences = r.split(/(?<!\b(?:Inc|Co|Corp|Ltd|LLC|Bros|Mr|Mrs|Ms|Dr|St|No|vs|Jr|Sr)\.)(?<=[.!?])\s+(?=[A-Z])/).filter(Boolean);
   if (sentences.length > 2) out.push(`more than two sentences (${sentences.length})`);
   if (!/[.!?]$/.test(r)) out.push("does not end with a full stop");
   if (r.includes("—")) out.push("contains an em dash (the no-value sentinel)");

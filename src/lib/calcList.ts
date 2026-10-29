@@ -50,7 +50,7 @@ export function readCalcList(text: string): { values: number[]; note: string } {
   if (r.ambiguous) throw new ListTokenError(r.ambiguous);
   if (r.dropped.length) {
     const shown = r.dropped.slice(0, 3).map((t) => `“${t}”`).join(", ") + (r.dropped.length > 3 ? ` and ${r.dropped.length - 3} more` : "");
-    throw new ListTokenError(`${shown} ${r.dropped.length === 1 ? "is not a number" : "are not numbers"} — a list takes numbers separated by commas, spaces or semicolons.`);
+    throw new ListTokenError(`${shown} ${r.dropped.length === 1 ? "is not a number" : "are not numbers"}: a list takes numbers separated by commas, spaces or semicolons.`);
   }
   return { values: r.values, note: decimalCommaNote(r) };
 }

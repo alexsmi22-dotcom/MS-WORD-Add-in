@@ -99,7 +99,10 @@ describe("the equation table is plain data", () => {
 
 describe("every engEq key the pane uses exists", () => {
   const pane = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
-  const keys = [...pane.matchAll(/\bengEq\("([^"]+)"\)/g)].map((m) => m[1]);
+  // Library registries spread into ENG_CALCS (src/lib/*Calcs.ts) call engEq too: their keys count as used.
+  const libDir = path.join(__dirname, "..");
+  const libCalls = fs.readdirSync(libDir).filter((f) => /Calcs\.ts$/.test(f)).map((f) => fs.readFileSync(path.join(libDir, f), "utf8")).join("\n");
+  const keys = [...pane.matchAll(/\bengEq\("([^"]+)"\)/g), ...libCalls.matchAll(/\bengEq\("([^"]+)"\)/g)].map((m) => m[1]);
   test("the pane calls engEq only with literal keys", () => {
     expect(pane).not.toMatch(/\bengEq\((?!")/);
   });

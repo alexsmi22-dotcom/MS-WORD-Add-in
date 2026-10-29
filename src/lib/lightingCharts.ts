@@ -283,8 +283,8 @@ export function brdfAlbedoSvg(thetaV: number, F0: number, form: SmithForm, rough
   for (let i = 0; i <= 24; i++) {
     const r = 0.045 + ((1 - 0.045) * i) / 24;
     const a = r * r;
-    const ew = directionalAlbedo(a, thetaV, 1, form);
-    const ef = directionalAlbedo(a, thetaV, F0, form);
+    const ew = directionalAlbedo(a, thetaV, 1, form, 64, 32);
+    const ef = directionalAlbedo(a, thetaV, F0, form, 64, 32);
     if (!isErr(ew)) white.push({ x: r, y: ew });
     if (!isErr(ef)) withF.push({ x: r, y: ef });
   }
@@ -326,7 +326,7 @@ export function noiseChartSvg(betaDeg: number, N0: number, sigma0: number, Nt: n
     const mcU: Point[] = [];
     const mcC: Point[] = [];
     for (const n of ns.filter((x) => x <= 4096)) {
-      const trials = Math.max(8, Math.min(64, Math.floor(65536 / n)));
+      const trials = Math.max(8, Math.min(32, Math.floor(16384 / n)));
       const u = mcRelativeError("uniform", betaDeg, n, trials, 1 + n);
       const c = mcRelativeError("cosine", betaDeg, n, trials, 7 + n);
       if (!isErr(u) && u > 0) mcU.push({ x: n, y: u });

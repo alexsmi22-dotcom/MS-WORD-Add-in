@@ -550,23 +550,24 @@ const BRDF_N2 = 128;
  * cells (within 5×10⁻⁵ of a 400 × 720 Gauss–Legendre integral over the light direction). F0 = 1 gives the
  * white-furnace test: 1 − E is the energy single scattering loses (multiple bounces between microfacets not modelled).
  */
-export function directionalAlbedo(alpha: number, thetaVDeg: number, F0: number, form: SmithForm): number | Err {
+export function directionalAlbedo(alpha: number, thetaVDeg: number, F0: number, form: SmithForm, n1 = BRDF_N1, n2 = BRDF_N2): number | Err {
   if (!fin(alpha, thetaVDeg, F0) || alpha <= 0 || alpha > 1 || thetaVDeg < 0 || thetaVDeg >= 90 || F0 < 0 || F0 > 1) return err("Albedo: α in (0, 1], θv in [0°, 90°), F0 in [0, 1].");
+  if (!Number.isInteger(n1) || !Number.isInteger(n2) || n1 < 8 || n2 < 8 || n1 > 1024 || n2 > 1024) return err("Albedo grid: whole numbers of cells from 8 to 1024 each way.");
   const NoV = Math.cos(thetaVDeg * DEG);
   const v = [Math.sin(thetaVDeg * DEG), 0, NoV];
   const a2 = alpha * alpha;
   let sum = 0;
-  for (let i = 0; i < BRDF_N1; i++) {
+  for (let i = 0; i < n1; i++) {
     // u = 1 − (1 − w)², du = 2(1 − w)dw: cells crowd toward u = 1 (grazing half-vectors), where the shadowing term
     // falls to zero over a sliver of u; a uniform u grid converged only as 1/N there (0.4 % off at 256 cells).
-    const w = (i + 0.5) / BRDF_N1;
+    const w = (i + 0.5) / n1;
     const u = 1 - (1 - w) * (1 - w);
     const du = 2 * (1 - w);
     const c2 = (1 - u) / (1 + (a2 - 1) * u);
     const ch = Math.sqrt(c2);
     const sh = Math.sqrt(Math.max(0, 1 - c2));
-    for (let j = 0; j < BRDF_N2; j++) {
-      const ph = (2 * Math.PI * (j + 0.5)) / BRDF_N2;
+    for (let j = 0; j < n2; j++) {
+      const ph = (2 * Math.PI * (j + 0.5)) / n2;
       // v lies in the x–z plane, so h's y component never enters v·h.
       const VoH = v[0] * sh * Math.cos(ph) + v[2] * ch;
       if (VoH <= 0) continue;
@@ -576,7 +577,7 @@ export function directionalAlbedo(alpha: number, thetaVDeg: number, F0: number, 
       sum += (du * G2 * schlickF(F0, VoH) * VoH) / (NoV * ch);
     }
   }
-  return sum / (BRDF_N1 * BRDF_N2);
+  return sum / (n1 * n2);
 }
 
 export function brdf(inp: BrdfInput): BrdfResult | Err {

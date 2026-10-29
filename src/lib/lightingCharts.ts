@@ -64,24 +64,34 @@ export interface SunPathPoint {
 export function sunPathChartSvg(path: SunPathPoint[], now: { minute: number; elevation: number; azimuth: number }, noon: { elevation: number; azimuth: number }): string {
   const north = noon.azimuth < 90 || noon.azimuth > 270;
   const ax = (a: number): number => (north ? (a > 180 ? a - 360 : a) : a);
-  const pts: Point[] = [];
-  let prev: number | null = null;
-  for (const p of path) {
-    const x = ax(p.azimuth);
-    const gap = prev !== null && Math.abs(x - prev) > 180;
-    pts.push(gap ? { x, y: p.elevation, gap: true } : { x, y: p.elevation });
-    prev = x;
-  }
   const lo = north ? -180 : 0;
   const hi = north ? 180 : 360;
   const top = Math.max(10, Math.ceil((Math.max(noon.elevation, now.elevation) + 8) / 10) * 10);
-  const bottom = Math.min(-10, Math.floor((Math.min(...path.map((p) => p.elevation)) - 2) / 10) * 10);
+  // Night is drawn only down to −20° (below blue hour the path carries no light), so the daylight arc fills the frame;
+  // the path below that is left out (a new piece starts where it comes back), not clipped at the frame.
+  const bottom = Math.max(-20, Math.min(-10, Math.floor((Math.min(...path.map((p) => p.elevation)) - 2) / 10) * 10));
+  const pts: Point[] = [];
+  let prev: number | null = null;
+  let broken = false;
+  for (const p of path) {
+    if (p.elevation < bottom) {
+      broken = true;
+      continue;
+    }
+    const x = ax(p.azimuth);
+    const gap = broken || (prev !== null && Math.abs(x - prev) > 180);
+    pts.push(gap && pts.length ? { x, y: p.elevation, gap: true } : { x, y: p.elevation });
+    prev = x;
+    broken = false;
+  }
   const series: Series[] = [
     { points: pts, type: "line", color: BLUE, label: "sun path (apparent)" },
     { points: [{ x: lo, y: 0 }, { x: hi, y: 0 }], type: "line", color: GREY, label: "horizon" },
-    { points: [{ x: ax(noon.azimuth), y: noon.elevation }], type: "scatter", color: BLACK, label: `solar noon, ${lsig(noon.elevation, 3)}°` },
-    { points: [{ x: ax(now.azimuth), y: now.elevation }], type: "scatter", color: RED, label: `${clock(now.minute)}, ${lsig(now.elevation, 3)}°` },
   ];
+  const notes: string[] = [];
+  if (noon.elevation >= bottom) series.push({ points: [{ x: ax(noon.azimuth), y: noon.elevation }], type: "scatter", color: BLACK, label: `solar noon, ${lsig(noon.elevation, 3)}°` });
+  if (now.elevation >= bottom) series.push({ points: [{ x: ax(now.azimuth), y: now.elevation }], type: "scatter", color: RED, label: `${clock(now.minute)}, ${lsig(now.elevation, 3)}°` });
+  else notes.push(`At ${clock(now.minute)} the sun is ${lsig(-now.elevation, 3)}° below the horizon, under this frame.`);
   return buildPlotSvg(series, {
     xlabel: "Azimuth (° clockwise from north)",
     ylabel: "Elevation (°)",
@@ -90,6 +100,7 @@ export function sunPathChartSvg(path: SunPathPoint[], now: { minute: number; ele
     xTickLabel: north ? (v: number) => lsig(((v % 360) + 360) % 360, 4) : undefined,
     width: W,
     height: H,
+    notes,
   });
 }
 
@@ -159,8 +170,8 @@ export function softShadowRaySvg(D: number, w: number, L: number, d: number, s: 
   else series.push({ points: [{ x: xr, y: s.umbra / 2 }, { x: xr, y: -s.umbra / 2 }], type: "line", color: PURPLE, label: `antumbra, ${lsig(-s.umbra)}` });
   const ySpan = Math.max(D, half * 2, w) * 0.62;
   return buildPlotSvg(series, {
-    xlabel: "Distance from the light",
-    ylabel: "Lateral position",
+    xlabel: "Distance from the light (m)",
+    ylabel: "Lateral position (m)",
     xLimits: { min: -0.04 * xr, max: xr * 1.04 },
     yLimits: { min: -ySpan, max: ySpan },
     width: W,
@@ -189,8 +200,8 @@ export function softShadowWidthSvg(D: number, w: number, L: number, d: number): 
   ];
   if (ends !== null) series.push({ points: [{ x: ends, y: 0 }], type: "scatter", color: PURPLE, label: `umbra ends at ${lsig(ends)}` });
   return buildPlotSvg(series, {
-    xlabel: "Occluder to receiver distance d",
-    ylabel: "Width",
+    xlabel: "Occluder to receiver distance d (m)",
+    ylabel: "Width (m)",
     xLimits: { min: 0, max: dMax },
     yLimits: { min: 0, max: Math.max(...pen.map((p) => p.y), ...pt.map((p) => p.y)) * 1.06 },
     width: W,
@@ -330,7 +341,7 @@ export function noiseChartSvg(betaDeg: number, N0: number, sigma0: number, Nt: n
       const u = mcRelativeError("uniform", betaDeg, n, trials, 1 + n);
       const c = mcRelativeError("cosine", betaDeg, n, trials, 7 + n);
       if (!isErr(u) && u > 0) mcU.push({ x: n, y: u });
-      if (!isErr(c) && c > 0) mcC.push({ x: n, y: c });
+      if (sc > 0 && !isErr(c) && c > 0) mcC.push({ x: n, y: c });
     }
     series.push({ points: mcU, type: "scatter", color: BLUE, label: "seeded MC, uniform" });
     if (mcC.length) series.push({ points: mcC, type: "scatter", color: GREEN, label: "seeded MC, cosine" });
@@ -434,11 +445,13 @@ export function hgPolarSvg(g: number, thetaDeg: number): string {
     { points: [{ x: -1.1, y: 0 }, { x: 1.1, y: 0 }], type: "line", color: "#cccccc", label: "incident light direction" },
     { points: [{ x: rt * Math.cos((thetaDeg * Math.PI) / 180), y: rt * Math.sin((thetaDeg * Math.PI) / 180) }], type: "scatter", color: RED, label: `θ = ${lsig(thetaDeg, 3)}°` },
   ];
+  // A near-isotropic phase function is a circle of radius 1: the sideways axis grows to hold it.
+  const ySpan = Math.max(0.75, 1.12 * Math.max(...curve.map((p) => Math.abs(p.y)), ...iso.map((p) => Math.abs(p.y))));
   return buildPlotSvg(series, {
     xlabel: "Forward (relative phase, normalised to the peak)",
     ylabel: "Sideways",
     xLimits: { min: -1.15, max: 1.15 },
-    yLimits: { min: -0.75, max: 0.75 },
+    yLimits: { min: -ySpan, max: ySpan },
     width: W,
     height: H,
   });

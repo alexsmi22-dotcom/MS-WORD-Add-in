@@ -313,6 +313,12 @@ import { QUANTUM_MECHANICS_CALCS } from "../src/lib/quantumMechanicsCalcs";
 import { curvesSvg, hydrogenLevelSvg, levelFigureSvg, tunnelSvg } from "../src/lib/quantumMechanicsCharts";
 // --- end Release E: quantum mechanics ---
 
+// --- Lighting & rendering ---
+import { LIGHTING_CALCS } from "../src/lib/lightingCalcs";
+import { beamTransmittanceSvg, brdfLobeSvg, falloffChartSvg, hgPolarSvg, noiseChartSvg, shadowPlanSvg, softShadowRaySvg, softShadowWidthSvg, sunPathChartSvg, toneChartSvg } from "../src/lib/lightingCharts";
+import { softShadow as lightSoftShadow } from "../src/lib/lightingPhysics";
+// --- end Lighting & rendering ---
+
 import { kaplanMeier } from "../src/lib/survival";
 import { kaplanMeierSvg } from "../src/lib/survivalFigure";
 // "Fully inclusive" (2026-10-28): the figures added to the calculators that drew none.
@@ -4004,6 +4010,60 @@ rotator 15` }, "jones elliptical");
   figures.push(["quantum mechanics tunnelSvg one point each", tunnelSvg({ below: [{ x: 0.5, lt: -2, wkb: -3 }, { x: 0.9, lt: -1, wkb: -1.5 }], above: [{ x: 1, t: 0.1 }, { x: 3, t: 0.9 }], xMax: 3, mark: { x: 0.95, lt: -1, t: 0.1 } })]);
 }
 // --- end Release E: quantum mechanics ---
+
+// --- Lighting & rendering ---
+// Each calculator through its own compute() at its defaults and at layout stress: the sun at Sydney (path centred on
+// north), Quito at the equinox (sun near the zenith), polar night and polar day, the sun below the horizon (no shadow
+// line), a sun so low the shadow runs off the plan; soft shadows at contact, with an umbra, and with an occluder larger
+// than the light; falloff with the background nearer than the subject and a large light close up; the BRDF at r = 0
+// (floored), grazing, a metal and the separable form; noise at β = 90° (no cosine line) and a tiny target; tone mapping
+// with extreme values and exposure; the atmosphere in clear air (σ = 0), at the horizon, with back-scattering g < 0 and
+// one wavelength. Then the builders directly at their edges.
+{
+  const variants: Record<string, Record<string, string>[]> = {
+    "rend-sun-shadow": [
+      {},
+      { lat: "-33.8688", lon: "151.2093", date: "2026-06-21", time: "12:00", tz: "+10" },
+      { lat: "-0.1807", lon: "-78.4678", date: "2026-03-20", time: "12:15", tz: "-5" },
+      { lat: "78.2232", lon: "15.6267", date: "2026-12-21", time: "12:00", tz: "+1" },
+      { lat: "69.6492", lon: "18.9553", date: "2026-06-21", time: "00:30", tz: "+2" },
+      { time: "23:30" },
+      { time: "04:55", h: "30 m" },
+      { lat: "78.2232", lon: "15.6267", date: "2026-12-21", time: "00:00", tz: "+1" },
+    ],
+    "rend-soft-shadow": [{}, { d: "0" }, { d: "0.2 m" }, { D: "0.1 m", w: "2 m", L: "5 m", d: "40 m" }, { D: "3 m", w: "0.05 m", L: "0.5 m", d: "4 m" }],
+    "rend-falloff": [{}, { d2: "1 m" }, { dia: "3 m", d1: "0.5 m", d2: "50 m" }, { watts: "", eff: "" }],
+    "rend-brdf": [{}, { r: "0" }, { tv: "88", tl: "88", r: "0.9" }, { metal: "1", base: "0.95", r: "0.2", tv: "10", tl: "60", phi: "90" }, { g: "separable", r: "1" }],
+    "rend-noise": [{}, { beta: "90" }, { beta: "2", st: "0.1", n0: "4", t0: "3 s", tf: "0 s" }, { s0: "1", st: "4" }],
+    "rend-tonemap": [{}, { x: "0 0.001 0.18 1000", ev: "-6" }, { ev: "8", lw: "100" }, { x: "0.5" }],
+    "rend-atmosphere": [{}, { sigma: "0" }, { elev: "0", lams: "380 450 500 550 600 650 700 720", p: "700 hPa" }, { g: "-0.6", theta: "170" }, { lams: "550", elev: "90", sigma: "40 /km" }],
+  };
+  for (const c of LIGHTING_CALCS) {
+    (variants[c.id] ?? [{}]).forEach((over, vi) => {
+      const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+      Object.assign(vals, over);
+      const out = c.compute((k) => vals[k] ?? "");
+      const svgs = (out.blocks ?? []).filter((b) => b.kind === "plot").map((b) => (b as { svg: string }).svg);
+      if (out.ok === false || !svgs.length) throw new Error(`corpus: lighting ${c.id} did not draw: ${out.text}`);
+      svgs.forEach((s, i) => figures.push([`lighting ${c.id} v${vi} ${Object.keys(over).join("+") || "default"} #${i + 1}`, s]));
+    });
+  }
+  figures.push(["lighting sunPathChartSvg path crossing the axis edge", sunPathChartSvg(Array.from({ length: 49 }, (_, i) => ({ minute: i * 30, elevation: 20 * Math.sin((i / 48) * 2 * Math.PI) + 5, azimuth: (i * 7.5 + 300) % 360 })), { minute: 600, elevation: 20, azimuth: 0 }, { elevation: 25, azimuth: 0 })]);
+  figures.push(["lighting shadowPlanSvg no tips and no sun", shadowPlanSvg(2, "m", null, [], 5)]);
+  figures.push(["lighting shadowPlanSvg one long tip", shadowPlanSvg(0.001, "m", { length: 0.004, bearing: 315 }, [{ length: 0.004, bearing: 315, minute: 600 }], 5)]);
+  const ss = lightSoftShadow(1000, 0.001, 1e-3, 5);
+  if (!("penumbra" in ss)) throw new Error("corpus: soft shadow refused");
+  figures.push(["lighting softShadowRaySvg extreme light", softShadowRaySvg(1000, 0.001, 1e-3, 5, ss)]);
+  figures.push(["lighting softShadowWidthSvg occluder larger", softShadowWidthSvg(0.01, 10, 1, 0)]);
+  figures.push(["lighting falloffChartSvg tiny light far away", falloffChartSvg(1e6, 0.001, 1000, 5000)]);
+  figures.push(["lighting brdfLobeSvg grazing view", brdfLobeSvg(89, 1, "correlated", 0.045)]);
+  figures.push(["lighting noiseChartSvg huge target", noiseChartSvg(45, 1, 0.5, 1e6, 0.0005)]);
+  figures.push(["lighting toneChartSvg no values on axis", toneChartSvg(1e-3, [])]);
+  figures.push(["lighting beamTransmittanceSvg horizon at altitude", beamTransmittanceSvg(38, 0.3, [])]);
+  figures.push(["lighting hgPolarSvg near-isotropic", hgPolarSvg(0.001, 0)]);
+  figures.push(["lighting hgPolarSvg strongly backward", hgPolarSvg(-0.95, 180)]);
+}
+// --- end Lighting & rendering ---
 
 {
   // Kaplan–Meier (v2.194.0): curve to last follow-up, y fixed 0–1, censoring + ticks (incl. one at S = 1).

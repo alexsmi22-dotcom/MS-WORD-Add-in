@@ -6,9 +6,10 @@
 
 import { ASTRO_CALCS } from "../astroCalcs";
 import { fmtDMS, fmtHMS, parseDeg, parseRA, refractionFromTrue, airmassKastenYoung } from "../astroCoords";
-import { calendarFromJd, dayOfWeek, jdFromCalendar, scalesFromUTC, LEAP_TABLE_EXPIRY_TEXT } from "../astroTime";
+import { calendarFromJd, dayOfWeek, jdFromCalendar, scalesFromUTC, LEAP_TABLE_EXPIRY_TEXT, LEAP_TABLE_EXPIRY_MJD } from "../astroTime";
 import { apparentPlace, riseTransitSet } from "../astroBodies";
-import { star, surfaceGravity, WORLDS, telescope } from "../astroPhysics";
+import { keplerTransit, overlapFraction, star, surfaceGravity, WORLDS, telescope } from "../astroPhysics";
+import { eclipticStripSvg, hrDiagramSvg } from "../astroCharts";
 import { PLANET_PHYS } from "../astroData";
 import { bodyById, BODIES } from "../orbital";
 import { mathToOmml } from "../mathOmml";
@@ -340,5 +341,154 @@ describe("work is bounded", () => {
     const t0 = Date.now();
     ok(run("astro-moon-calendar", { month: "all", span: "60" }));
     expect(Date.now() - t0).toBeLessThan(20000);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// The independent review of 2026-10-29 (findings-astro.md): each finding's own repro, pinned.
+// ---------------------------------------------------------------------------------------------------------------
+
+const reading = (o: AnalyzeOutput): string => ((o.blocks ?? [])[0] as { text: string }).text;
+const tableText = (o: AnalyzeOutput): string =>
+  (o.blocks ?? []).filter((b) => b.kind === "table").map((b) => (b as { rows: string[][] }).rows.map((r) => r.join(" | ")).join("\n")).join("\n");
+
+describe("review blockers", () => {
+  test("B2: 2026-11-04 23:59:59.97 UTC reads 2026-11-05 and a Thursday (the weekday of the date shown)", () => {
+    const o = ok(run("astro-time", { date: "2026-11-04", time: "23:59:59.97" }));
+    expect(reading(o)).toMatch(/^2026-11-05 00:00 UTC .* a Thursday/);
+    expect(o.text).not.toMatch(/Wednesday/);
+  });
+  test("B3: a lowercase s is south, never arcseconds: lat \"33.87 s\" is 33.87° S; Dec \"12.5 s\" is refused", () => {
+    const o = ok(run("astro-coords", { lat: "33.87 s", lon: "151.21", tz: "10" }));
+    expect(reading(o)).toMatch(/from 33\.87° S/);
+    ok(run("astro-moon", { lat: "33.87 s", lon: "151.21", tz: "10" }));
+    expect(parseDeg("33.87 s", "lat")).toEqual({ deg: -33.87 });
+    expect(run("astro-coords", { dec: "12.5 s" }).ok).toBe(false);
+    expect(run("astro-coords", { dec: "12.5 s" }).text).toMatch(/sign instead/);
+  });
+  test("B4: a grazing transit (b = 1.05, k = 0.1028) reports the overlap, not k²", () => {
+    const o = ok(run("astro-kepler", { b: "1.05" }));
+    expect(tableText(o)).toMatch(/Transit depth at mid-transit \(disc overlap\) \| 0\.20\d\d %/);
+    expect(reading(o)).toMatch(/dims the star by 0\.20\d %/);
+    expect(reading(o)).not.toMatch(/1\.06 %/);
+    expect(overlapFraction(0, 0.1)).toBeCloseTo(0.01, 12);
+    expect(overlapFraction(1.2, 0.1)).toBe(0);
+    // Half the planet over the limb at d = 1 for a small planet: about half of k².
+    expect(overlapFraction(1, 0.01) / 1e-4).toBeCloseTo(0.5, 2);
+  });
+});
+
+describe("review majors", () => {
+  test("M1: the Moon at 85° N on 2025-06-18 rises twice in the UTC day, and both are reported", () => {
+    const site = { lat: 85 * D, lon: 40 * D, height: 0 };
+    const day = jdFromCalendar(2025, 6, 18) as number;
+    const rs = riseTransitSet((t) => apparentPlace("moon", t), "moon", site, day, 69.184);
+    expect(rs.rises.length).toBeGreaterThanOrEqual(2);
+    const o = ok(run("astro-moon", { date: "2025-06-18", time: "23:00", tz: "0", lat: "85", lon: "40", height: "0" }));
+    expect(tableText(o)).toMatch(/Moonrise \| \d\d:\d\d and \d\d:\d\d/);
+    expect(o.text).toMatch(/21:2\d/);
+  });
+  test("M3: ΔT is continuous across the leap-second table's expiry (was a 6.8 s jump)", () => {
+    const exp = LEAP_TABLE_EXPIRY_MJD + 2400000.5;
+    const before = scalesFromUTC(exp - 1e-6).deltaT;
+    const after = scalesFromUTC(exp + 1e-6).deltaT;
+    expect(Math.abs(after - before)).toBeLessThan(0.01);
+    expect(scalesFromUTC(exp + 365.25).deltaT - before).toBeLessThan(2);
+  });
+  test("M4: 23:59:60 is accepted on 2016-12-31 (a leap-second day) and refused by name on 2026-11-05", () => {
+    const o = ok(run("astro-time", { date: "2016-12-31", time: "23:59:60.5" }));
+    expect(o.text).toMatch(/leap second 23:59:60\.5/);
+    const sec59 = ok(run("astro-time", { date: "2016-12-31", time: "23:59:59.5" }));
+    const tt = (x: AnalyzeOutput): number => (x.outputs ?? []).find((e) => e.key === "jdTT")!.value;
+    expect((tt(o) - tt(sec59)) * 86400).toBeCloseTo(1, 3);
+    const bad = run("astro-time", { date: "2026-11-05", time: "23:59:60" });
+    expect(bad.ok).toBe(false);
+    expect(bad.text).toMatch(/2026-11-05 had no leap second/);
+    expect(run("astro-moon", { time: "23:59:60" }).ok).toBe(false);
+  });
+  test("M5: the ecliptic strip keeps Venus at β = 8.4° in view", () => {
+    const svg = eclipticStripSvg([{ label: "Venus", lonDeg: 100, latDeg: 8.41 }, { label: "Sun", lonDeg: 90, latDeg: 0 }]);
+    expect(svg).toMatch(/>10</);
+    expect(svg).not.toMatch(/NaN/);
+  });
+  test("M6: inconsistent inputs are worded with ×10ⁿ, never e-notation", () => {
+    const o = ok(run("astro-stars", { M: "1.43", d: "1e6 pc", plx: "" }));
+    expect(o.text).toMatch(/inconsistent/);
+    expect(o.text).not.toMatch(/\de[+-]\d/);
+    const s = star({ m: null, M: null, dPc: null, parallaxMas: null, extinction: 0, L: 1e9, R: 1, T: 5772 });
+    if (!s.ok) throw new Error(s.error);
+    expect(s.notes.join(" ")).not.toMatch(/\de[+-]\d/);
+  });
+  test("M7: hemisphere letters and DMS with a letter: \"33°52′S\" and \"77.03 W\"", () => {
+    const o = ok(run("astro-coords", { lat: "33°52′S", lon: "151°12′ E", tz: "10" }));
+    expect(o.text).toMatch(/33\.87° S, 151\.20° E/);
+    expect(ok(run("astro-coords", { lon: "77.03 W" })).text).toMatch(/77\.03° W/);
+    expect(parseDeg("N 40.5", "lat")).toEqual({ deg: 40.5 });
+    expect(parseDeg("-33 S", "lat")).toHaveProperty("error");
+    expect(parseDeg("40 E", "lat")).toHaveProperty("error");
+  });
+});
+
+describe("review minors", () => {
+  test("1: the eclipse table is labelled once, \"from November 2026\" / \"from January 2026\"", () => {
+    expect(tableText(ok(run("astro-moon-calendar")))).not.toMatch(/2026 2026/);
+    const o = ok(run("astro-moon-calendar", { month: "all", span: "60" }));
+    expect(o.text).toMatch(/Eclipses from January 2026 for 60 months/);
+    expect(o.text).not.toMatch(/2026 2026/);
+  });
+  test("2: seeing written 2\" is two arcseconds", () => {
+    const o = ok(run("astro-telescope", { seeing: '2"' }));
+    expect(o.text).toMatch(/3\.1 pixels across the seeing/);
+    expect(ok(run("astro-telescope", { target: "31'" })).text).toMatch(/target fits/);
+  });
+  test("3: elongation says east (evening) or west (morning)", () => {
+    expect(tableText(ok(run("astro-ephemeris")))).toMatch(/° (E \(evening\)|W \(morning\))/);
+  });
+  test("4: 1582-10-15 is day 278 of 1582 (ten days were dropped)", () => {
+    expect(ok(run("astro-time", { date: "1582-10-15" })).text).toMatch(/Day of the year\s+278\b/);
+    expect(ok(run("astro-time", { date: "2026-11-05" })).text).toMatch(/Day of the year\s+309\b/);
+  });
+  test("5: \"On the Moon\"", () => expect(reading(ok(run("astro-gravity", { body: "moon" })))).toMatch(/^On the Moon /));
+  test("6: b = 1.2 (clear of the disc) lists no depth or probability, and K uses the sin i that b fixes", () => {
+    const o = ok(run("astro-kepler", { b: "1.2" }));
+    expect(tableText(o)).not.toMatch(/Transit depth|probability/);
+    const r = keplerTransit({ muStar: 1.32712442099e20, muPlanet: 1.2671276253e17, aM: null, periodS: 3.5 * 86400, rStarM: 6.957e8, rPlanetM: 7.1492e7, impact: 1.2, ecc: 0 });
+    const r0 = keplerTransit({ muStar: 1.32712442099e20, muPlanet: 1.2671276253e17, aM: null, periodS: 3.5 * 86400, rStarM: null, rPlanetM: null, impact: 0, ecc: 0 });
+    if (!r.ok || !r0.ok) throw new Error("kepler");
+    expect(r.rvKms as number).toBeLessThan(r0.rvKms as number);
+    expect((r.rvKms as number) / (r0.rvKms as number)).toBeCloseTo(Math.sin(((r.inclinationDeg as number) * Math.PI) / 180), 12);
+  });
+  test("7: at the South Pole every direction is north", () => {
+    const o = ok(run("astro-coords", { lat: "-90", lon: "0", dec: "-60", ra: "6h" }));
+    expect(reading(o)).toMatch(/above the north horizon/);
+    expect(reading(o)).not.toMatch(/south/);
+  });
+  test("8: figure legends are short, all six radius lines are labelled, Venus is not the Sun's colour", () => {
+    const hr = hrDiagramSvg(9940, 25, "this star");
+    for (const R of ["0.01", "0.1", "1", "10", "100", "1000"]) expect(hr).toContain(`R = ${R} R☉`);
+    const svg = eclipticStripSvg([{ label: "Sun", lonDeg: 0, latDeg: 0 }, { label: "Venus", lonDeg: 10, latDeg: 1 }]);
+    expect(svg).not.toMatch(/#d4a017/i);
+    expect(ok(run("astro-cosmology")).blocks!.find((b) => b.kind === "plot")!.svg).not.toMatch(/…|\.\.\./);
+  });
+  test("9: Neptune's μ is the planet alone (JPL SSD), and the escape speed names its radius", () => {
+    expect(bodyById("neptune")!.mu).toBe(6.83509997e15);
+    const t = tableText(ok(run("astro-gravity", { body: "saturn" })));
+    expect(t).toMatch(/Escape speed \(mean radius, as JPL tabulates\) \| 36\.09/);
+    expect(t).toMatch(/Escape speed from the equator \(the Trajectory tools' radius\) \| 35\.47/);
+  });
+  test("10: a transit earlier in the evening is past tense", () => {
+    expect(reading(ok(run("astro-coords", { ra: "20h", dec: "+10", time: "23:30" })))).toMatch(/it transited at/);
+    expect(reading(ok(run("astro-coords")))).toMatch(/it transited at 03:06/);
+    expect(reading(ok(run("astro-coords", { ra: "1h 05m" })))).toMatch(/it transits at 22:/);
+  });
+  test("11: the whole-year reading summarises (counts, the first full Moon, supermoons) instead of listing 26 dates", () => {
+    const r = reading(ok(run("astro-moon-calendar", { month: "all" })));
+    expect(r).toMatch(/^In 2026 the Moon is full 1[23] times and new 1[23] times/);
+    expect(r.length).toBeLessThan(320);
+  });
+  test("12: December 3000 does not list eclipses in 3001", () => {
+    const o = ok(run("astro-moon-calendar", { year: "3000", month: "12", span: "24" }));
+    expect(tableText(o)).not.toMatch(/3001-/);
+    expect(o.text).toMatch(/to the end of 3000/);
   });
 });

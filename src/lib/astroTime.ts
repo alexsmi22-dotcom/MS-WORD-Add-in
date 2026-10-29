@@ -200,6 +200,13 @@ export const LEAP_TABLE_START_MJD = LEAP_SECONDS[0][0];
 export const LEAP_TABLE_EXPIRY_MJD = (jdFromCalendar(LEAP_SECONDS_EXPIRY.year, LEAP_SECONDS_EXPIRY.month, LEAP_SECONDS_EXPIRY.day, "gregorian") as number) - MJD0;
 export const LEAP_TABLE_EXPIRY_TEXT = `${LEAP_SECONDS_EXPIRY.year}-${String(LEAP_SECONDS_EXPIRY.month).padStart(2, "0")}-${String(LEAP_SECONDS_EXPIRY.day).padStart(2, "0")}`;
 
+/** ΔT past the leap-second table: the last TAI − UTC + 32.184 s at the expiry, plus the polynomial's change since. */
+export function deltaTAfterTable(jd: number): number {
+  const jdExp = LEAP_TABLE_EXPIRY_MJD + MJD0;
+  const last = LEAP_SECONDS[LEAP_SECONDS.length - 1][1] + 32.184;
+  return last + deltaTEspenakMeeus(decimalYear(jd)) - deltaTEspenakMeeus(decimalYear(jdExp));
+}
+
 /** TAI − UTC (s) for a UTC Julian Date; null before 1972 (the leap-second era) or after the table's expiry. */
 export function taiMinusUtc(jdUtc: number): number | null {
   const mjd = jdUtc - MJD0;
@@ -237,9 +244,11 @@ export function scalesFromUTC(jdUtc: number): TimeScales {
     return { jdUTC: jdUtc, jdUT1: jdUtc, jdTT: tt, jdTAI: tai, deltaT: dat + 32.184, taiUtc: dat, source: "leap-seconds", notes };
   }
   const mjd = jdUtc - MJD0;
-  const dt = deltaTEspenakMeeus(decimalYear(jdUtc));
+  // Past the expiry the last TAI − UTC + 32.184 s is held and only the Espenak–Meeus GROWTH since the expiry is added,
+  // so ΔT is continuous there (review M3: the polynomial alone jumped 6.8 s at the expiry).
+  const dt = mjd >= LEAP_TABLE_EXPIRY_MJD ? deltaTAfterTable(jdUtc) : deltaTEspenakMeeus(decimalYear(jdUtc));
   if (mjd >= LEAP_TABLE_EXPIRY_MJD)
-    notes.push(`The date is past the leap-second table's expiry (${LEAP_TABLE_EXPIRY_TEXT}): a leap second announced since then is not known here, so UTC is read as UT and TT = UT + ΔT from the Espenak–Meeus polynomial (${fmtFixed(dt, 1)} s; that 2006 extrapolation ran about 4 to 5 s above the observed ΔT by 2026, so expect seconds of error in clock times).`);
+    notes.push(`The date is past the leap-second table's expiry (${LEAP_TABLE_EXPIRY_TEXT}): a leap second announced since then is not known here, so UTC is read as UT and TT = UT + ΔT, ΔT = ${fmtFixed(dt, 1)} s (the last TAI − UTC + 32.184 s, plus the Espenak–Meeus polynomial's growth since the expiry). Future ΔT is a forecast: expect seconds of error in clock times, growing with the years.`);
   else notes.push(`Before 1972 there are no leap seconds: the time is read as UT, and TT = UT + ΔT with ΔT = ${fmtFixed(dt, 1)} s from the Espenak–Meeus polynomial.`);
   return { jdUTC: jdUtc, jdUT1: jdUtc, jdTT: jdUtc + dt / 86400, jdTAI: null, deltaT: dt, taiUtc: null, source: "deltaT-polynomial", notes };
 }

@@ -17,6 +17,7 @@ import { formatUnit, parseMeasured } from "./units";
 import { fmtSig } from "./axis";
 import { trueMinus } from "./numberList";
 import { refuseNonFinite } from "./finiteResult";
+import { LEAP_SECONDS } from "./astroData";
 import {
   calendarFromJd,
   dayOfWeek,
@@ -165,6 +166,8 @@ function readClock(raw: string | undefined, label: string): number | string {
   const m = /^(\d{1,2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?$/.exec(t);
   if (!m) return `${label}: "${t}" is not a clock time; write HH:MM or HH:MM:SS on the 24-hour clock (21:30).`;
   const h = Number(m[1]), mi = Number(m[2]), s = m[3] ? Number(m[3]) : 0;
+  // 23:59:60.x is a real UTC second on a leap-second day; the Time scales tool checks the date (review M4).
+  if (h === 23 && mi === 59 && s >= 60 && s < 61) return label === "UTC time" ? 24 + (s - 60) / 3600 : `${label}: "${t}" is a leap second; local clock times here run 00:00 to 23:59:59 (use the Time scales tool, in UTC, for a leap-second instant).`;
   if (h > 23 || mi > 59 || s >= 60) return `${label}: "${t}" is not a time of day (hours 0 to 23, minutes and seconds below 60).`;
   return h + mi / 60 + s / 3600;
 }
@@ -182,10 +185,10 @@ function readOffset(raw: string | undefined): number | string {
 
 /** The observing site: geodetic latitude and east longitude in degrees (decimal or DMS), height in metres. */
 function readSite(r: (k: string) => string): Site | string {
-  const la = parseDeg(r("lat"));
+  const la = parseDeg(r("lat"), "lat");
   if ("error" in la) return `Latitude: ${la.error}`;
   if (Math.abs(la.deg) > 90) return `Latitude: ${trimSig(la.deg)}° is not a latitude (−90° to +90°, north positive).`;
-  const lo = parseDeg(r("lon"));
+  const lo = parseDeg(r("lon"), "lon");
   if ("error" in lo) return `Longitude: ${lo.error}`;
   if (Math.abs(lo.deg) > 180) return `Longitude: ${trimSig(lo.deg)}° is outside −180° to +180° (east positive; west is negative).`;
   const h = plainNum(r("height"));
@@ -255,8 +258,21 @@ const hhmm = (clock: number): string => {
 };
 const dateText = (w: When): string => `${yearText(w.ymd.y)}-${pad2(w.ymd.m)}-${pad2(w.ymd.d)}`;
 
+/** Every time in a list of instants, joined: "02:56 and 21:26" (review M1: a second rise is reported, not dropped). */
+const clocksOn = (ts: number[], offset: number, ref: string): string => ts.map((t) => clockOn(t, offset, ref)).join(" and ");
+
+/** An age in Gyr in words: "8.60 billion years", "16.4 million years", "366 thousand years". */
+const ageWords = (gyr: number): string => (gyr >= 1 ? `${n(gyr, 3)} billion years` : gyr >= 1e-3 ? `${n(gyr * 1e3, 3)} million years` : `${n(gyr * 1e6, 3)} thousand years`);
+
 const COMPASS = ["north", "north-northeast", "northeast", "east-northeast", "east", "east-southeast", "southeast", "south-southeast", "south", "south-southwest", "southwest", "west-southwest", "west", "west-northwest", "northwest", "north-northwest"];
-const compass = (azDeg: number): string => COMPASS[Math.round((((azDeg % 360) + 360) % 360) / 22.5) % 16];
+const compass = (azDeg: number, site?: Site): string =>
+  site && site.lat <= -89.9999 * DEG ? "north" : site && site.lat >= 89.9999 * DEG ? "south" : COMPASS[Math.round((((azDeg % 360) + 360) % 360) / 22.5) % 16];
+
+/** East or west of the Sun along the ecliptic: east is an evening object, west a morning one. */
+const elongSide = (p: { eclLon: number }, sun: { eclLon: number }): string => {
+  const d = ((((p.eclLon - sun.eclLon) / DEG + 540) % 360) + 360) % 360 - 180;
+  return d >= 0 ? "E (evening)" : "W (morning)";
+};
 const latText = (s: Site): string => `${fx(Math.abs(s.lat / DEG), 2)}° ${s.lat >= 0 ? "N" : "S"}, ${fx(Math.abs(s.lon / DEG), 2)}° ${s.lon >= 0 ? "E" : "W"}`;
 
 const TZ_NOTE = "Clock times are local: UTC plus the offset given, with no daylight-saving rule applied (type the offset in force on the date).";
@@ -266,9 +282,9 @@ function riseSetWords(name: string, rs: ReturnType<typeof riseTransitSet>, offse
   if (rs.circumpolar === "up") return `${name} stays above the horizon all day (it neither rises nor sets on this date at this latitude).`;
   if (rs.circumpolar === "down") return `${name} stays below the horizon all day (it does not rise on this date at this latitude).`;
   const parts: string[] = [];
-  parts.push(rs.rise !== null ? `rises at ${clockOn(rs.rise, offset, ref)}` : "does not rise on this date");
+  parts.push(rs.rises.length ? `rises at ${clocksOn(rs.rises, offset, ref)}` : "does not rise on this date");
   if (rs.transit !== null) parts.push(`transits at ${clockOn(rs.transit, offset, ref)} (altitude ${fx((rs.transitAlt as number) / DEG, 1)}°)`);
-  parts.push(rs.set !== null ? `${setWord} at ${clockOn(rs.set, offset, ref)}` : `does not set on this date`);
+  parts.push(rs.sets.length ? `${setWord} at ${clocksOn(rs.sets, offset, ref)}` : `does not set on this date`);
   return `${name} ${parts.join(", ")}.`;
 }
 
@@ -297,12 +313,25 @@ const timeCalc: AstroCalc = {
     const mode = r("mode") === "jd" ? "jd" : r("mode") === "mjd" ? "mjd" : "calendar";
     const cal: CalendarMode = r("cal") === "gregorian" ? "gregorian" : r("cal") === "julian" ? "julian" : "auto";
     let jd: number;
+    let leapExtra = 0;
     if (mode === "calendar") {
       const ymd = readDate(r("date"), "Date");
       if (typeof ymd === "string") return refuse(ymd);
-      const clock = readClock(r("time"), "UTC time");
+      let clock = readClock(r("time"), "UTC time");
       if (typeof clock === "string") return refuse(clock);
       if (ymd.y < -4712 || ymd.y > 9999) return refuse(`Date: the year ${ymd.y} is outside −4712 to 9999 (Julian Date 0 is −4712 January 1, noon).`);
+      if (clock >= 24) {
+        // A leap second exists only at the end of a day the IERS table names (the next day starts a new TAI − UTC).
+        const next = jdFromCalendar(ymd.y, ymd.m, ymd.d, "gregorian");
+        const nextMjd = typeof next === "number" ? next + 1 - 2400000.5 : NaN;
+        if (!LEAP_SECONDS.some(([mjd], i) => i > 0 && mjd === nextMjd)) {
+          const last = LEAP_SECONDS[LEAP_SECONDS.length - 1][0] - 1 + 2400000.5;
+          const c = calendarFromJd(last);
+          return refuse(`UTC time: ${yearText(ymd.y)}-${pad2(ymd.m)}-${pad2(ymd.d)} had no leap second, so 23:59:60 does not exist on it (leap seconds fall only at the end of the days the IERS table lists; the last was ${c.year}-${pad2(c.month)}-${pad2(Math.floor(c.day))}).`);
+        }
+        leapExtra = (clock - 24) * 3600 + 1; // seconds past 23:59:59.000, 1 to 2
+        clock = 23 + 59 / 60 + 59 / 3600;
+      }
       const j = jdFromCalendar(ymd.y, ymd.m, ymd.d + clock / 24, cal);
       if (typeof j !== "number") return refuse(`Date: ${j.error}`);
       jd = j;
@@ -312,10 +341,19 @@ const timeCalc: AstroCalc = {
       jd = mode === "mjd" ? v + 2400000.5 : v;
       if (jd < 0 || jd > 5373484.5) return refuse(`Julian Date: ${trimSig(jd)} is outside 0 (−4712 January 1, noon) to 5373484.5 (the year 10000).`);
     }
-    const lonP = parseDeg(r("lon"));
+    const lonP = parseDeg(r("lon"), "lon");
     if ("error" in lonP) return refuse(`Longitude: ${lonP.error}`);
     if (Math.abs(lonP.deg) > 180) return refuse(`Longitude: ${trimSig(lonP.deg)}° is outside −180° to +180° (east positive).`);
     const sc = scalesFromUTC(jd);
+    if (leapExtra > 0) {
+      // TAI and TT run on through the leap second; the UTC day has 86 401 s, so its Julian Date cannot name this
+      // second: the JD shown is that of 23:59:59 UTC.
+      const add = leapExtra / 86400;
+      sc.jdTT += add;
+      if (sc.jdTAI !== null) sc.jdTAI += add;
+      sc.jdUT1 += add;
+      sc.notes.push(`The instant is the leap second 23:59:${(59 + leapExtra).toFixed(1)} UTC: TAI and TT run on through it (TAI − UTC is still ${sc.taiUtc} s until the next second), while a UTC Julian Date cannot name it, so the JD shown is that of 23:59:59.`);
+    }
     const gm = gmst(sc.jdUT1, sc.jdTT), ga = gast(sc.jdUT1, sc.jdTT);
     const lmst = gm + lonP.deg * DEG, last = ga + lonP.deg * DEG;
     const H = (rad: number): number => rad / (15 * DEG);
@@ -330,8 +368,11 @@ const timeCalc: AstroCalc = {
       const hh = Math.floor(secs / 3600), mm = Math.floor((secs - hh * 3600) / 60), ss = secs - hh * 3600 - mm * 60;
       return `${yearText(c.year)}-${pad2(c.month)}-${pad2(d)} ${pad2(hh)}:${pad2(mm)}:${ss.toFixed(1).padStart(4, "0")}`;
     };
-    const wd = WEEKDAYS[dayOfWeek(jd)];
-    const doy = dayOfYear(auto.year, auto.month, auto.day, auto.calendar === "gregorian");
+    // From the SHOWN (rounded) instant, so the weekday names the date printed beside it (review B2), and the day of
+    // the year by counting days from 1 January in the calendar in force, so 1582 (ten days short) counts right.
+    const wd = WEEKDAYS[dayOfWeek(jdShown)];
+    const jan1 = jdFromCalendar(auto.year, 1, 1, "auto");
+    const doy = typeof jan1 === "number" ? Math.floor(jdShown + 0.5) - Math.floor(jan1 + 0.5) + 1 : dayOfYear(auto.year, auto.month, auto.day, auto.calendar === "gregorian");
     const lines: EngReportLine[] = [];
     lines.push({ math: "JD = floor(365.25 (Y + 4716)) + floor(30.6001 (M + 1)) + D + B - 1524.5", fallback: "JD = ⌊365.25(Y + 4716)⌋ + ⌊30.6001(M + 1)⌋ + D + B − 1524.5 (Meeus 7.1; B = 2 − A + ⌊A/4⌋, A = ⌊Y/100⌋ in the Gregorian calendar, B = 0 in the Julian)" });
     lines.push({ math: "TT = TAI + 32.184", fallback: "TT = TAI + 32.184 s; TAI = UTC + ΔAT (leap seconds)" });
@@ -443,7 +484,7 @@ const coordsCalc: AstroCalc = {
     rows.push(["Galactic l, b", `${fx(gal.lon / DEG, 5)}°, ${fx(gal.lat / DEG, 5)}°`]);
     rows.push(["Hour angle", fmtHMS(((tp.ha / DEG / 15) + 24) % 24, 1)]);
     rows.push(["Altitude (airless)", fmtDMS(tp.alt / DEG, 0)], ["Altitude (with refraction)", P > 0 ? fmtDMS(altObs / DEG, 0) : "refraction off"]);
-    rows.push(["Azimuth (from north, east +)", `${fx(tp.az / DEG, 3)}° (${compass(tp.az / DEG)})`]);
+    rows.push(["Azimuth (from north, east +)", `${fx(tp.az / DEG, 3)}° (${compass(tp.az / DEG, site)})`]);
     rows.push(["Airmass (Kasten–Young)", am === null ? "below the horizon" : fx(am, 3)]);
     if (altObs > 0) rows.push(["Airmass, plane-parallel sec z", fx(1 / Math.sin(altObs), 3)]);
     const outputs: EngOutput[] = [
@@ -477,8 +518,8 @@ const coordsCalc: AstroCalc = {
     lines.push(riseSetWords("The object", rs, w.offset, ref));
     if (Math.abs(altObs / DEG) < 1) lines.push("The object is within 1° of the horizon: refraction there is uncertain by several arcminutes with the actual air temperature profile.");
     lines.push(TZ_NOTE);
-    const where = altObs > 0 ? `${fx(altObs / DEG, 1)}° above the ${compass(tp.az / DEG)} horizon (azimuth ${fx(tp.az / DEG, 0)}°), airmass ${fx(am as number, 2)}` : `${fx(-altObs / DEG, 1)}° below the horizon (azimuth ${fx(tp.az / DEG, 0)}°)`;
-    const reading = `At ${hhmm(w.clock)} (${offsetText(w.offset)}) on ${ref} from ${latText(site)}, the object is ${where}${rs.transit !== null ? `; it transits at ${clockOn(rs.transit, w.offset, ref)} at ${fx((rs.transitAlt as number) / DEG, 1)}°` : ""}.${sepTxt}`;
+    const where = altObs > 0 ? `${fx(altObs / DEG, 1)}° above the ${compass(tp.az / DEG, site)} horizon (azimuth ${fx(tp.az / DEG, 0)}°), airmass ${fx(am as number, 2)}` : `${fx(-altObs / DEG, 1)}° below the horizon (azimuth ${fx(tp.az / DEG, 0)}°)`;
+    const reading = `At ${hhmm(w.clock)} (${offsetText(w.offset)}) on ${ref} from ${latText(site)}, the object is ${where}${rs.transit !== null ? `; it ${rs.transit < w.jdUTC ? "transited" : "transits"} at ${clockOn(rs.transit, w.offset, ref)} at ${fx((rs.transitAlt as number) / DEG, 1)}°` : ""}.${sepTxt}`;
     const method = "Method: IAU 2006 precession, IAU 1980 nutation (Meeus table 22.A) and annual aberration take the J2000 place to the apparent place of date (proper motion and light deflection are left out; agreement with skyfield on the same instants 0.3″); WGS84 site; refraction by Sæmundsson scaled to the pressure and temperature (about 0.5′ uncertain at the horizon); rise and set at −34′ (standard refraction); galactic coordinates in the IAU (ICRS) system, within 0.03″ of astropy.";
     // The path of the object across the local day, split where it dips below the horizon.
     const path: Array<Array<{ altDeg: number; azDeg: number }>> = [[]];
@@ -538,14 +579,14 @@ const moonCalc: AstroCalc = {
     rows.push(["Illuminated fraction", pct(st.illuminated, 1)], ["Age (since New Moon)", `${fx(st.ageDays, 2)} days`]);
     rows.push(["Geocentric RA, Dec (apparent)", `${fmtHMS(st.moon.ra / DEG / 15, 1)}, ${fmtDMS(st.moon.dec / DEG, 0, true)}`]);
     rows.push(["Topocentric RA, Dec", `${fmtHMS(tp.ra / DEG / 15, 1)}, ${fmtDMS(tp.dec / DEG, 0, true)}`]);
-    rows.push(["Altitude (airless), azimuth", `${fx(tp.alt / DEG, 2)}°, ${fx(tp.az / DEG, 2)}° (${compass(tp.az / DEG)})`]);
+    rows.push(["Altitude (airless), azimuth", `${fx(tp.alt / DEG, 2)}°, ${fx(tp.az / DEG, 2)}° (${compass(tp.az / DEG, site)})`]);
     rows.push(["Distance, centre to centre", `${n(st.moon.distKm, 6)} km (from the site ${n(tp.distKm, 6)} km)`]);
     rows.push(["Apparent diameter", `${fx((st.diameter / DEG) * 60, 2)}′ geocentric, ${fx((topoDiam / DEG) * 60, 2)}′ from the site`]);
     rows.push(["Bright limb position angle χ", `${fx(chi, 1)}° from north through east`]);
     rows.push(["Optical libration l, b", `${fx(lib.l, 2)}°, ${fx(lib.b, 2)}°`]);
-    rows.push(["Moonrise", rs.circumpolar ? (rs.circumpolar === "up" ? "above the horizon all day" : "below the horizon all day") : rs.rise !== null ? clockOn(rs.rise, w.offset, ref) : "none on this date"]);
+    rows.push(["Moonrise", rs.circumpolar ? (rs.circumpolar === "up" ? "above the horizon all day" : "below the horizon all day") : rs.rises.length ? clocksOn(rs.rises, w.offset, ref) : "none on this date"]);
     rows.push(["Moon transit", rs.transit !== null ? `${clockOn(rs.transit, w.offset, ref)} (${fx((rs.transitAlt as number) / DEG, 1)}°)` : "none on this date"]);
-    rows.push(["Moonset", rs.circumpolar ? "(see above)" : rs.set !== null ? clockOn(rs.set, w.offset, ref) : "none on this date"]);
+    rows.push(["Moonset", rs.circumpolar ? "(see above)" : rs.sets.length ? clocksOn(rs.sets, w.offset, ref) : "none on this date"]);
     lines.push({ table: rows, label: "The Moon" });
     const nextRows: string[][] = [["Next phase", "Local date and time", "UTC"]];
     for (const e of next) {
@@ -556,8 +597,8 @@ const moonCalc: AstroCalc = {
     if (rs.circumpolar === null && (rs.rise === null || rs.set === null))
       lines.push(`No ${rs.rise === null ? "moonrise" : "moonset"} falls on ${ref}: the Moon rises about 50 minutes later each day, so once a month one calendar day has none.`);
     lines.push(TZ_NOTE);
-    const where = tp.alt > 0 ? `${fx(tp.alt / DEG, 1)}° above the ${compass(tp.az / DEG)} horizon` : "below the horizon";
-    const riseBit = rs.circumpolar === "up" ? "it stays up all day" : rs.circumpolar === "down" ? "it does not rise today" : [rs.rise !== null ? `it rises at ${clockOn(rs.rise, w.offset, ref)}` : "it does not rise today", rs.set !== null ? `sets at ${clockOn(rs.set, w.offset, ref)}` : "does not set today"].join(" and ");
+    const where = tp.alt > 0 ? `${fx(tp.alt / DEG, 1)}° above the ${compass(tp.az / DEG, site)} horizon` : "below the horizon";
+    const riseBit = rs.circumpolar === "up" ? "it stays up all day" : rs.circumpolar === "down" ? "it does not rise today" : [rs.rises.length ? `it rises at ${clocksOn(rs.rises, w.offset, ref)}` : "it does not rise today", rs.sets.length ? `sets at ${clocksOn(rs.sets, w.offset, ref)}` : "does not set today"].join(" and ");
     const reading = `On ${ref} at ${hhmm(w.clock)} (${offsetText(w.offset)}) the Moon is a ${st.name.toLowerCase()}, ${fx(st.illuminated * 100, 0)} % lit and ${fx(st.ageDays, 1)} days old, ${where}; ${riseBit}.`;
     const method = "Method: Meeus ch. 47 Moon (ELP-2000/82 truncated; against JPL DE421/DE440s over 1900 to 2100 within 17″ in longitude, 4.5″ in latitude, 45 km in distance), truncated VSOP87 Sun (2″); topocentric by WGS84 parallax; rise and set when the upper limb meets the horizon (centre at −34′ − semidiameter, standard refraction, no dip; within 5 s of skyfield); phases are instants of 0°/90°/180°/270° elongation in apparent longitude (within 20 s of DE421); the illuminated fraction agrees with skyfield to 0.0001 and the bright-limb angle to 0.01°; libration is optical only (Meeus ch. 53).";
     // Figures: the disc as seen, and altitude from local noon to the next.
@@ -639,7 +680,9 @@ const calendarCalc: AstroCalc = {
     const apRows: string[][] = [["Event", `Local (${offsetText(offset)})`, "Distance (km)"]];
     for (const a of aps) apRows.push([a.kind === "perigee" ? "Perigee" : "Apogee", stampText(utcFromTT(a.jdTT), offset), fx(a.distKm, 0)]);
     lines.push({ table: apRows, label: "Perigee and apogee (least and greatest centre distance)" });
-    const eclEnd = j0 + dt0 + span * 30.44;
+    const eclLimit = (jdFromCalendar(EPHEMERIS_YEARS.max + 1, 1, 1, "gregorian") as number) + dt0;
+    const eclEnd = Math.min(j0 + dt0 + span * 30.44, eclLimit);
+    const clipped = j0 + dt0 + span * 30.44 > eclLimit;
     const ecl = eclipsesBetween(j0 + dt0, eclEnd);
     const all = [
       ...ecl.lunar.map((e) => ({ t: e.jdTT, kind: `${e.type[0].toUpperCase()}${e.type.slice(1)} lunar eclipse`, mag: `umbral ${fx(e.umbralMag, 3)}, penumbral ${fx(e.penumbralMag, 3)}`, extra: "" })),
@@ -650,7 +693,7 @@ const calendarCalc: AstroCalc = {
       const u = utcFromTT(e.t);
       ecRows.push([e.kind, stampText(u, 0), stampText(u, offset), e.mag, e.extra]);
     }
-    lines.push({ table: ecRows, label: `Eclipses from ${label.split(" ")[0]} ${y} for ${span} months` });
+    lines.push({ table: ecRows, label: `Eclipses from ${whole ? `January ${y}` : label} for ${span} months${clipped ? ` (to the end of ${EPHEMERIS_YEARS.max}, the last year covered)` : ""}` });
     if (!all.length) lines.push(`No eclipse falls in the ${span} months searched.`);
     lines.push(`Supermoon here means a full Moon less than ${fx(SUPERMOON_KM, 0)} km from the Earth's centre; micromoon, beyond ${fx(MICROMOON_KM, 0)} km. There is no official definition; others (Nolle's "within 90 % of perigee") give slightly different lists.`);
     lines.push("Eclipses are found at every New and Full Moon in the window. A solar eclipse's γ is the least distance of the Moon's shadow axis from the Earth's centre in Earth radii (positive north); where on Earth it is seen is NOT computed here. A lunar eclipse is visible wherever the Moon is up at the time.");
@@ -658,7 +701,10 @@ const calendarCalc: AstroCalc = {
     const full = phases.filter((e) => e.phase === 2);
     const newm = phases.filter((e) => e.phase === 0);
     const nextE = all[0];
-    const reading = `In ${label} the Moon is full ${full.length ? full.map((e) => `on ${stampText(utcFromTT(e.jdTT), offset)}`).join(" and ") : "on no date"} and new ${newm.length ? newm.map((e) => `on ${stampText(utcFromTT(e.jdTT), offset)}`).join(" and ") : "on no date"} (${offsetText(offset)})${supers.length ? `; supermoon ${supers.join(", ")}` : ""}; ${nextE ? `the next eclipse found is ${/^[aeiou]/i.test(nextE.kind) ? "an" : "a"} ${nextE.kind.toLowerCase()} on ${stampText(utcFromTT(nextE.t), 0).slice(0, 10)}.` : `no eclipse falls in the ${span} months searched.`}`;
+    const yearReading = whole
+      ? `In ${y} the Moon is full ${full.length} times and new ${newm.length} times; the first full Moon is on ${full.length ? stampText(utcFromTT(full[0].jdTT), offset) : "no date"} (${offsetText(offset)})${supers.length ? `, and ${supers.length} ${supers.length === 1 ? "is a supermoon" : "are supermoons"} (the first ${supers[0]})` : ", with no supermoon"}; ${nextE ? `the first eclipse found is ${/^[aeiou]/i.test(nextE.kind) ? "an" : "a"} ${nextE.kind.toLowerCase()} on ${stampText(utcFromTT(nextE.t), 0).slice(0, 10)}.` : `no eclipse falls in the ${span} months searched.`}`
+      : null;
+    const reading = yearReading ?? `In ${label} the Moon is full ${full.length ? full.map((e) => `on ${stampText(utcFromTT(e.jdTT), offset)}`).join(" and ") : "on no date"} and new ${newm.length ? newm.map((e) => `on ${stampText(utcFromTT(e.jdTT), offset)}`).join(" and ") : "on no date"} (${offsetText(offset)})${supers.length ? `; supermoon ${supers.join(", ")}` : ""}; ${nextE ? `the next eclipse found is ${/^[aeiou]/i.test(nextE.kind) ? "an" : "a"} ${nextE.kind.toLowerCase()} on ${stampText(utcFromTT(nextE.t), 0).slice(0, 10)}.` : `no eclipse falls in the ${span} months searched.`}`;
     const method = "Method: phases are the instants the apparent geocentric longitude of the Moon (Meeus ch. 47) exceeds the Sun's (truncated VSOP87) by 0°, 90°, 180°, 270° (within 20 s of DE421/DE440s over 1900 to 2100); perigee and apogee are extrema of the ch. 47 distance (133 of them in 1960–61 and 2026–28 within 8 minutes and 7 km of DE421); lunar eclipses by Danjon's shadow (umbral magnitudes within 0.004 of skyfield's DE421 values, all 343 of 1900 to 2049 found), solar eclipse γ within 0.001 of DE421.";
     // Figure: the month grid, or for a whole year the lit fraction day by day.
     let fig: AnalyzeBlock;
@@ -731,11 +777,11 @@ const ephemCalc: AstroCalc = {
       const mag = b === "sun" ? -26.74 : b === "moon" ? null : planetMagnitude(b, sc.jdTT);
       const lit = b === "sun" ? null : (1 + Math.cos(p.phaseAngle)) / 2;
       const dist = b === "moon" ? `${fx(p.distKm, 0)} km` : `${fx(p.distKm / AU_KM, 5)} au`;
-      const riseTxt = rs.circumpolar === "up" ? "up all day" : rs.circumpolar === "down" ? "not up" : rs.rise !== null ? clockOn(rs.rise, w.offset, ref) : "none";
-      const setTxt = rs.circumpolar ? "" : rs.set !== null ? clockOn(rs.set, w.offset, ref) : "none";
-      rows.push([BODY_LABEL[b], fmtHMS(p.ra / DEG / 15, 1), fmtDMS(p.dec / DEG, 0, true), dist, elong === null ? "" : `${fx(elong, 1)}°`, mag === null ? "" : fx(mag, 2), lit === null ? "" : pct(lit, 0), `${fx(tp.alt / DEG, 1)}°`, riseTxt, setTxt]);
+      const riseTxt = rs.circumpolar === "up" ? "up all day" : rs.circumpolar === "down" ? "not up" : rs.rises.length ? clocksOn(rs.rises, w.offset, ref) : "none";
+      const setTxt = rs.circumpolar ? "" : rs.sets.length ? clocksOn(rs.sets, w.offset, ref) : "none";
+      rows.push([BODY_LABEL[b], fmtHMS(p.ra / DEG / 15, 1), fmtDMS(p.dec / DEG, 0, true), dist, elong === null ? "" : `${fx(elong, 1)}° ${elongSide(p, sun)}`, mag === null ? "" : fx(mag, 2), lit === null ? "" : pct(lit, 0), `${fx(tp.alt / DEG, 1)}°`, riseTxt, setTxt]);
       strip.push({ label: BODY_LABEL[b], lonDeg: p.eclLon / DEG, latDeg: p.eclLat / DEG });
-      if (b !== "sun" && b !== "moon" && tp.alt > 0) up.push(`${BODY_LABEL[b]} (${mag === null ? "" : `magnitude ${fx(mag, 1)}, `}${fx(tp.alt / DEG, 0)}° up in the ${compass(tp.az / DEG)})`);
+      if (b !== "sun" && b !== "moon" && tp.alt > 0) up.push(`${BODY_LABEL[b]} (${mag === null ? "" : `magnitude ${fx(mag, 1)}, `}${fx(tp.alt / DEG, 0)}° up in the ${compass(tp.az / DEG, site)})`);
       if (b !== "sun") outputs.push({ key: `${b}Alt`, label: `${BODY_LABEL[b]} altitude`, value: tp.alt / DEG, unit: "°" });
     }
     const sunTp = topocentric(sun, site, sc.jdUT1, sc.jdTT);
@@ -774,7 +820,7 @@ function unitReader(r: (k: string) => string) {
   const errors: string[] = [];
   const conversions: string[] = [];
   const read = (key: string, si: string, shownFactor: number, shown: string, label: string, required: boolean): number | null => {
-    const raw = (r(key) ?? "").trim().replace(/[−–]/g, "-");
+    const raw = (r(key) ?? "").trim().replace(/[−–]/g, "-").replace(/^([^"″'′]*\d)\s*(?:"|″|'')\s*$/, "$1 arcsec").replace(/^([^"″'′]*\d)\s*['′]\s*$/, "$1 arcmin");
     if (!raw) {
       if (required) errors.push(`${label}: this field is required.`);
       return required ? NaN : null;
@@ -1009,13 +1055,14 @@ const cosmoCalc: AstroCalc = {
   group: ASTRO_GROUP,
   unitContract: "domain",
   hint:
-    "A redshift z with H₀ and Ωm (flat ΛCDM, defaults Planck-like 67.7 km/s/Mpc and 0.31): the low-z Hubble-law distance " +
+    "A redshift z (up to recombination, z = 1100) with H₀ and Ωm (flat ΛCDM with the CMB photons and neutrinos, defaults " +
+    "Planck-like 67.7 km/s/Mpc and 0.31): the low-z Hubble-law distance " +
     "cz/H₀, and the comoving, luminosity and angular-diameter distances, the scale in kpc per arcsecond, the lookback " +
     "time and the age of the universe then and now.",
   fields: [
     { key: "z", label: "Redshift z", default: "0.5", kind: "text" },
     { key: "H0", label: "Hubble constant H₀ (km/s/Mpc)", default: "67.7", kind: "text" },
-    { key: "Om", label: "Matter density Ωm (flat: ΩΛ = 1 − Ωm)", default: "0.31", kind: "text" },
+    { key: "Om", label: "Matter density Ωm (flat: ΩΛ = 1 − Ωm − Ωr)", default: "0.31", kind: "text" },
   ],
   compute: (r) => {
     const z = plainNum(r("z")), H0 = plainNum(r("H0")), Om = plainNum(r("Om"));
@@ -1025,21 +1072,22 @@ const cosmoCalc: AstroCalc = {
     const c = cosmology(z, H0, Om);
     if (!c.ok) return refuse(c.error);
     const lines: EngReportLine[] = [];
-    lines.push({ math: "D_C = c/H_0 int(0, z, 1/E(z) dz)", fallback: "D(C) = (c/H₀)∫₀ᶻ dz′/E(z′), E(z) = √(Ωm(1 + z)³ + ΩΛ)" });
+    lines.push({ math: "D_C = c/H_0 int(0, z, 1/E(z) dz)", fallback: "D(C) = (c/H₀)∫₀ᶻ dz′/E(z′), E(z) = √(Ωr(1 + z)⁴ + Ωm(1 + z)³ + ΩΛ)" });
     lines.push({ math: "D_L = (1 + z) D_C", fallback: "D(L) = (1 + z)·D(C); D(A) = D(C)/(1 + z)" });
-    lines.push({ math: "t(z) = 2/(3 H_0 sqrt(Omega_Lambda)) arcsinh(sqrt(Omega_Lambda/Omega_m) (1 + z)^{-3/2})", fallback: "t(z) = (2/(3H₀√ΩΛ))·arsinh(√(ΩΛ/Ωm)·(1 + z)^(−3/2))" });
+    lines.push({ math: "t(z) = 1/H_0 int(z, inf, 1/((1 + z) E(z)) dz)", fallback: "t(z) = (1/H₀)∫ᶻ^∞ dz′/((1 + z′)E(z′)) (age at z; lookback = t(0) − t(z))" });
     const rows: string[][] = [["Quantity", "Value"]];
     rows.push(["Recession velocity cz", `${n(c.czKms, 6)} km/s`]);
     rows.push(["Hubble-law distance cz/H₀", `${n(c.hubbleMpc, 6)} Mpc`]);
     rows.push(["Comoving distance", `${n(c.comovingMpc, 6)} Mpc`], ["Luminosity distance", `${n(c.luminosityMpc, 6)} Mpc`], ["Angular-diameter distance", `${n(c.angularMpc, 6)} Mpc`]);
     rows.push(["Scale", `${n(c.kpcPerArcsec, 5)} kpc per arcsecond`]);
+    rows.push(["Radiation Ωr (photons + neutrinos), ΩΛ", `${n(c.omegaR, 4)}, ${n(c.omegaL, 6)}`]);
     rows.push(["Lookback time", `${n(c.lookbackGyr, 5)} Gyr`], ["Age of the universe at z", `${n(c.ageGyr, 5)} Gyr`], ["Age now", `${n(c.age0Gyr, 5)} Gyr`]);
     if (z > 0) rows.push(["Distance modulus 5 log₁₀(D(L)/10 pc)", fx(5 * Math.log10((c.luminosityMpc * 1e6) / 10), 3)]);
     lines.push({ table: rows, label: "Cosmology" });
     if (z > 0.1) lines.push(`At z = ${trimSig(z)} the Hubble law cz/H₀ is ${pct(Math.abs(c.hubbleMpc / c.comovingMpc - 1), 0)} off the comoving distance: it is a low-redshift (z ≲ 0.1) approximation.`);
     else if (z > 0 && z < 0.01) lines.push("Below z ≈ 0.01 a galaxy's own motion (a few hundred km/s) is a large part of cz, so a distance from z alone is rough.");
-    const reading = z === 0 ? `With H₀ = ${trimSig(H0)} km/s/Mpc and Ωm = ${trimSig(Om)}, the universe is ${n(c.age0Gyr, 3)} billion years old.` : `Light from z = ${trimSig(z)} left its source ${n(c.lookbackGyr, 3)} billion years ago, when the universe was ${n(c.ageGyr, 3)} billion years old; the source is now ${n(c.comovingMpc, 4)} Mpc away (comoving), and its luminosity distance is ${n(c.luminosityMpc, 4)} Mpc.`;
-    const method = "Method: flat ΛCDM with matter and Λ only (no radiation or neutrinos, astropy FlatLambdaCDM with Tcmb0 = 0), adaptive Simpson quadrature; agrees with astropy 8.0 to 10⁻¹² relative over z = 0.001 to 10. Including radiation (Tcmb0 = 2.7255 K) shortens D(C) at z = 1 by 0.01 % (astropy).";
+    const reading = z === 0 ? `With H₀ = ${trimSig(H0)} km/s/Mpc and Ωm = ${trimSig(Om)}, the universe is ${n(c.age0Gyr, 3)} billion years old.` : `Light from z = ${trimSig(z)} left its source ${n(c.lookbackGyr, 3)} billion years ago, when the universe was ${ageWords(c.ageGyr)} old; the source is now ${n(c.comovingMpc, 4)} Mpc away (comoving), and its luminosity distance is ${n(c.luminosityMpc, 4)} Mpc.`;
+    const method = "Method: flat ΛCDM with matter, radiation and Λ, as astropy FlatLambdaCDM(H₀, Ωm, Tcmb0 = 2.7255 K) with its default Neff = 3.04 massless neutrinos (Ωr = Ωγ(1 + 0.2271·Neff)); integrals in the scale factor by adaptive Simpson quadrature; agrees with astropy 8.0 to 10⁻¹¹ relative at z = 0.01, 1, 5 and 100 and to 10⁻⁶ at z = 1100.";
     const zs: number[] = [], dc: number[] = [], dl: number[] = [], da: number[] = [], hub: number[] = [];
     const zMax = Math.max(1, z * 2);
     for (let i = 0; i <= 60; i++) {
@@ -1106,11 +1154,12 @@ const keplerCalc: AstroCalc = {
     const rows: string[][] = [["Quantity", "Value"]];
     rows.push(["Period", `${n(res.periodS / 86400, 6)} d (${n(res.periodS / (365.25 * 86400), 6)} yr)`]);
     rows.push(["Semi-major axis", `${n(res.aM / AU_M, 6)} au (${n(res.aM / 1000, 6)} km)`]);
+    if (res.inclinationDeg !== null) rows.push(["Inclination for this b", `${fx(res.inclinationDeg, 3)}°`]);
     if (res.depth !== null) {
-      rows.push(["Transit depth", `${n(res.depth * 100, 4)} % (${n(res.depth * 1e6, 4)} ppm)`]);
+      rows.push(["Transit depth at mid-transit (disc overlap)", `${n(res.depth * 100, 4)} % (${n(res.depth * 1e6, 4)} ppm)`]);
+      if (res.k2 !== null && Math.abs(res.depth / res.k2 - 1) > 1e-9) rows.push(["k² (the depth of a non-grazing transit)", `${n(res.k2 * 100, 4)} %`]);
       rows.push(["Geometric transit probability R★/a", pct(res.transitProbability as number, 2)]);
-      if (res.inclinationDeg !== null) rows.push(["Inclination for this b", `${fx(res.inclinationDeg, 3)}°`]);
-      if (res.t14H !== null) rows.push(["Duration T₁₄ (first to fourth contact)", `${fx(res.t14H, 3)} h`], ["Duration T₂₃ (flat bottom)", `${fx(res.t23H as number, 3)} h`]);
+      if (res.t14H !== null) rows.push(["Duration T₁₄ (first to fourth contact)", `${fx(res.t14H, 3)} h`], ["Duration T₂₃ (flat bottom)", res.t23H ? `${fx(res.t23H, 3)} h` : "none (grazing)"]);
     }
     if (res.rvKms !== null) rows.push(["Radial-velocity semi-amplitude K", `${n(res.rvKms * 1000, 4)} m/s`]);
     lines.push({ table: rows, label: "Orbit" });
@@ -1119,13 +1168,13 @@ const keplerCalc: AstroCalc = {
     if (res.depth !== null && res.t14H !== null) bits.push(`a transit dims the star by ${n(res.depth * 100, 3)} % for ${fx(res.t14H, 2)} hours`);
     if (res.rvKms !== null) bits.push(`the star wobbles at ${n(res.rvKms * 1000, 3)} m/s`);
     const reading = `For a ${trimSig(Ms)} M☉ central mass and a ${trimSig(Mp)} MJ companion, ${bits.join("; ")}.`;
-    const method = "Assumptions: two point masses (Kepler's third law exact for the pair); transits for a circular orbit, a dark planet and a uniform stellar disc (limb darkening rounds the bottom and deepens the centre by up to about 20 %); K for the orbit's sin i (sin i = 1 without a transit). Masses through orbital.ts μ (IAU 2009) and G = 6.6743×10⁻¹¹.";
+    const method = "Assumptions: two point masses (Kepler's third law exact for the pair); transits for a circular orbit, a dark planet and a uniform stellar disc (limb darkening rounds the bottom and deepens the centre by up to about 20 %); the depth is the area of the planet's disc over the star at mid-transit (Mandel & Agol 2002, uniform source), so a grazing transit is shallower than k²; K uses the sin i that b fixes (sin i = 1 when no star radius is given). Masses through orbital.ts μ (IAU 2009) and G = 6.6743×10⁻¹¹.";
     const outputs: EngOutput[] = [{ key: "P", label: "Period", value: res.periodS / 86400, unit: "d" }, { key: "a", label: "Semi-major axis", value: res.aM / AU_M, unit: "au" }];
     if (res.depth !== null) outputs.push({ key: "depth", label: "Transit depth", value: res.depth, unit: "" });
     if (res.t14H !== null) outputs.push({ key: "t14", label: "Transit duration", value: res.t14H, unit: "h" });
     if (res.rvKms !== null) outputs.push({ key: "K", label: "RV semi-amplitude", value: res.rvKms * 1000, unit: "m/s" });
     let fig: AnalyzeBlock;
-    if (res.depth !== null && res.t14H !== null && res.t14H > 0) fig = plot(transitChartSvg(transitCurve(res.depth, res.t14H, res.t23H as number), res.depth), "The transit light curve (no limb darkening)", "Relative flux against hours from mid-transit, a flat-bottomed dip");
+    if (res.depth !== null && res.t14H !== null && res.t14H > 0) fig = plot(transitChartSvg(transitCurve(res.k as number, res.aOverR as number, res.impact, res.periodS / 3600, res.t14H), res.depth), "The transit light curve (uniform stellar disc, no limb darkening)", "Relative flux against hours from mid-transit, a dip shaped by the overlap of the planet and the star");
     else {
       const curve: Array<{ x: number; y: number }> = [];
       const mu = Ms * MU_SUN + Mp * MU_JUPITER;
@@ -1172,7 +1221,8 @@ const gravityCalc: AstroCalc = {
     const rows: string[][] = [["Quantity", "Value"]];
     rows.push(["Surface gravity", `${n(res.g, 5)} m/s² (${n(res.gRatio, 4)} g)`]);
     rows.push([`Weight of ${trimSig(mass)} kg`, `${n(res.weightN, 5)} N (an Earth scale reads ${n(res.scaleKg, 4)} kg)`]);
-    rows.push(["Escape speed", `${n(res.vEsc / 1000, 5)} km/s`]);
+    rows.push(["Escape speed (mean radius, as JPL tabulates)", `${n(res.vEsc / 1000, 5)} km/s`]);
+    if (Math.abs(w.radius / w.meanRadius - 1) > 1e-6) rows.push(["Escape speed from the equator (the Trajectory tools' radius)", `${n(Math.sqrt((2 * w.mu) / w.radius) / 1000, 5)} km/s`]);
     rows.push(["Sidereal rotation", `${n(Math.abs(w.rotationD), 6)} d (${n(Math.abs(w.rotationD) * 24, 6)} h)${w.rotationD < 0 ? ", retrograde" : ""}${w.parent !== "sun" ? ", synchronous" : ""}`]);
     rows.push(["Solar day (noon to noon)", `${n(res.solarDayD, 6)} d (${n(res.solarDayD * 24, 6)} h)`]);
     rows.push(["Year (orbit of the Sun)", `${n(w.yearD, 6)} d (${n(w.yearD / 365.25, 6)} Julian years)`]);
@@ -1182,7 +1232,7 @@ const gravityCalc: AstroCalc = {
     lines.push({ table: rows, label: w.label });
     const reading = w.id === "earth"
       ? `On the Earth ${trimSig(mass)} kg weighs ${n(res.weightN, 4)} N; the Moon raises tides ${n(res.earthMoonSunRatio, 3)} times the Sun's, and the escape speed is ${n(res.vEsc / 1000, 4)} km/s.`
-      : `On ${w.label} a ${trimSig(mass)} kg mass weighs ${n(res.weightN, 4)} N, what ${n(res.scaleKg, 3)} kg weighs on Earth (${n(res.gRatio, 3)} g); the escape speed is ${n(res.vEsc / 1000, 3)} km/s and a day lasts ${res.solarDayD > 2 ? `${n(res.solarDayD, 4)} Earth days` : `${n(res.solarDayD * 24, 4)} hours`}.`;
+      : `On ${w.id === "moon" ? "the Moon" : w.label} a ${trimSig(mass)} kg mass weighs ${n(res.weightN, 4)} N, what ${n(res.scaleKg, 3)} kg weighs on Earth (${n(res.gRatio, 3)} g); the escape speed is ${n(res.vEsc / 1000, 3)} km/s and a day lasts ${res.solarDayD > 2 ? `${n(res.solarDayD, 4)} Earth days` : `${n(res.solarDayD * 24, 4)} hours`}.`;
     const method = `Sources: ${w.source}; JPL SSD physical parameters and satellite elements (generated into astroData.ts). Surface gravity is GM/R² at the equator without the centrifugal term (Earth's falls by 0.034 m/s² at the equator from rotation); gas giants have no surface, so their "surface" is the 1 bar level. Tides use mean distances.`;
     const bars = WORLDS.map((x) => ({ label: x.label, g: x.mu / (x.radius * x.radius) })).sort((p, q) => q.g - p.g);
     const outputs: EngOutput[] = [

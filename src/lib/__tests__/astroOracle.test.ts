@@ -229,16 +229,64 @@ describe("the Moon's lit fraction, bright limb and apsides against skyfield", ()
   });
 });
 
-describe("radiation is negligible where the method note says so", () => {
-  test("astropy with Tcmb0 = 2.7255 K changes the comoving distance at z = 1 by about 0.01 %", () => {
-    expect(Math.abs(O.cosmo_radiation_dc_ratio_z1 - 1)).toBeLessThan(2e-4);
+describe("review M2: cosmology with radiation against astropy FlatLambdaCDM(67.7, 0.31, Tcmb0 = 2.7255, Neff 3.04)", () => {
+  test("comoving distance, lookback time and age at z = 0.01, 1, 5, 100 and 1100", () => {
+    expect(O.cosmo_rad.map((c: { z: number }) => c.z)).toEqual([0.01, 1, 5, 100, 1100]);
+    for (const c of O.cosmo_rad) {
+      const r = cosmology(c.z, 67.7, 0.31);
+      if (!r.ok) throw new Error(r.error);
+      const tol = c.z >= 1000 ? 2e-6 : 1e-9;
+      expect(Math.abs(r.comovingMpc / c.dc - 1)).toBeLessThan(tol);
+      expect(Math.abs(r.lookbackGyr / c.lookback - 1)).toBeLessThan(tol);
+      expect(Math.abs(r.ageGyr / c.age - 1)).toBeLessThan(tol);
+    }
+    const r0 = cosmology(0, 67.7, 0.31);
+    if (!r0.ok) throw new Error(r0.error);
+    expect(Math.abs(r0.age0Gyr / O.cosmo_rad_age0 - 1)).toBeLessThan(1e-9);
+  });
+  test("the reviewer's repro: the age at z = 1100 is no longer 29 % high", () => {
+    const r = cosmology(1100, 67.7, 0.31);
+    if (!r.ok) throw new Error(r.error);
+    expect(Math.abs(r.ageGyr / O.cosmo_rad[4].age - 1)).toBeLessThan(1e-5);
+  });
+});
+
+describe("review B1: solar eclipses against NASA's Five Millennium Canon, 2001–2100 (224 eclipses)", () => {
+  const N = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "nasa-solar-eclipses.json"), "utf8"));
+  const TYPE: Record<string, string> = { P: "partial", A: "annular", T: "total", H: "hybrid" };
+  const at = (r: { y: number; m: number; d: number; td: number }) => {
+    const jd = jdFromCalendar(r.y, r.m, r.d + r.td / 24) as number;
+    return { jd, e: solarEclipseAt(phasesBetween(jd - 1, jd + 1).find((x) => x.phase === 0)!.jdTT) };
+  };
+  test("every type agrees; magnitude within 0.005, γ within 0.002, greatest eclipse within 1.5 min", () => {
+    expect(N.rows.length).toBe(224);
+    for (const r of N.rows) {
+      const { jd, e } = at(r);
+      expect(e).not.toBeNull();
+      if (!e) continue;
+      expect({ date: `${r.y}-${r.m}-${r.d}`, type: e.type }).toEqual({ date: `${r.y}-${r.m}-${r.d}`, type: TYPE[r.type[0]] });
+      expect(Math.abs(e.magnitude - r.mag)).toBeLessThan(0.005);
+      expect(Math.abs(e.gamma - r.gamma)).toBeLessThan(0.002);
+      expect(Math.abs(e.jdTT - jd) * 1440).toBeLessThan(1.5);
+    }
+  });
+  test("the reviewer's repros: 2014-04-29 non-central annular below 1, 2043-04-09 non-central total above 1, 2025-03-29 0.938, 2025-09-21 0.855", () => {
+    const pick = (y: number, m: number, d: number) => at(N.rows.find((r: { y: number; m: number; d: number }) => r.y === y && r.m === m && r.d === d)).e!;
+    expect(pick(2014, 4, 29).type).toBe("annular");
+    expect(pick(2014, 4, 29).magnitude).toBeLessThan(1);
+    expect(pick(2014, 4, 29).magnitude).toBeCloseTo(0.9868, 2);
+    expect(pick(2043, 4, 9).type).toBe("total");
+    expect(pick(2043, 4, 9).magnitude).toBeGreaterThan(1);
+    expect(pick(2043, 4, 9).magnitude).toBeCloseTo(1.0095, 2);
+    expect(pick(2025, 3, 29).magnitude).toBeCloseTo(0.9376, 2);
+    expect(pick(2025, 9, 21).magnitude).toBeCloseTo(0.855, 2);
   });
 });
 
 describe("cosmology against astropy FlatLambdaCDM(67.7, 0.31, Tcmb0 = 0)", () => {
   test("distances, lookback time and age to 10⁻⁹ relative", () => {
     for (const c of O.cosmo) {
-      const r = cosmology(c.z, 67.7, 0.31);
+      const r = cosmology(c.z, 67.7, 0.31, 0); // Tcmb0 = 0: matter and Λ only, as this fixture
       if (!r.ok) throw new Error(r.error);
       expect(Math.abs(r.comovingMpc / c.dc - 1)).toBeLessThan(1e-9);
       expect(Math.abs(r.luminosityMpc / c.dl - 1)).toBeLessThan(1e-9);

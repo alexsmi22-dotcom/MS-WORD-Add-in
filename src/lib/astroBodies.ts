@@ -314,8 +314,9 @@ export interface RiseSetDay {
   transitAlt: number | null;
   /** All day above / below h₀ (no rise and no set in the window). */
   circumpolar: "up" | "down" | null;
-  /** True if more than one rise or set fell in the window (only the first is reported). */
-  multiple: boolean;
+  /** Every rise and every set in the window, in time order (near the poles the Moon can rise twice in a day). */
+  rises: number[];
+  sets: number[];
 }
 
 /**
@@ -351,15 +352,14 @@ export function riseTransitSet(placeAt: (jdTT: number) => Place, horizonKind: Bo
   let set: number | null = null;
   let transit: number | null = null;
   let transitAlt: number | null = null;
-  let count = 0;
+  const rises: number[] = [];
+  const sets: number[] = [];
   for (let i = 0; i < N; i++) {
     const s0 = samples[i], s1 = samples[i + 1];
     if (s0.h < 0 && s1.h >= 0) {
-      count++;
-      if (rise === null) rise = bisect(s0.u, s1.u, (u) => f(u).h);
+      rises.push(bisect(s0.u, s1.u, (u) => f(u).h));
     } else if (s0.h >= 0 && s1.h < 0) {
-      count++;
-      if (set === null) set = bisect(s0.u, s1.u, (u) => f(u).h);
+      sets.push(bisect(s0.u, s1.u, (u) => f(u).h));
     }
     // Upper transit: the hour angle passes from negative to positive (not the ±π wrap).
     if (transit === null && s0.ha < 0 && s1.ha >= 0 && s1.ha - s0.ha < Math.PI) {
@@ -367,10 +367,10 @@ export function riseTransitSet(placeAt: (jdTT: number) => Place, horizonKind: Bo
       transitAlt = f(transit).alt;
     }
   }
-  if (rise !== null && rise >= jdUT0 + 1) rise = null;
-  if (set !== null && set >= jdUT0 + 1) set = null;
+  rise = rises.length ? rises[0] : null;
+  set = sets.length ? sets[0] : null;
   const circumpolar = rise === null && set === null ? (samples.every((s) => s.h >= 0) ? "up" : samples.every((s) => s.h < 0) ? "down" : null) : null;
-  return { rise, transit, set, transitAlt, circumpolar, multiple: count > 2 };
+  return { rise, transit, set, transitAlt, circumpolar, rises, sets };
 }
 
 /** A fixed J2000 direction (a star) as an apparent place of date: precession, nutation and annual aberration. */

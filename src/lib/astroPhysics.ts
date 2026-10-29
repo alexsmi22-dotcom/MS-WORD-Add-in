@@ -10,6 +10,7 @@
 import { MOON_PHYS, PLANET_PHYS } from "./astroData";
 import { SIGMA_SB } from "./heat2";
 import { bodyById } from "./orbital";
+import { fmtSig } from "./axis";
 
 export const G = 6.6743e-11;
 export const L_SUN = 3.828e26;
@@ -190,7 +191,7 @@ export function star(i: StarIn): StarOut | Err {
   if (given === 3) {
     const mu = (m as number) - (M as number) - A;
     const dmu = distanceFromModulus(mu);
-    if (Math.abs(dmu / (d as number) - 1) > 0.01) notes.push(`The three magnitudes and distance given are inconsistent: m − M − A = ${mu.toFixed(3)} implies ${dmu.toPrecision(4)} pc, not ${(d as number).toPrecision(4)} pc. The values are reported as entered.`);
+    if (Math.abs(dmu / (d as number) - 1) > 0.01) notes.push(`The three magnitudes and distance given are inconsistent: m − M − A = ${fmtSig(mu, 4)} implies ${fmtSig(dmu, 4)} pc, not ${fmtSig(d as number, 4)} pc. The values are reported as entered.`);
   } else if (given === 2) {
     if (d === null) {
       d = distanceFromModulus((m as number) - (M as number) - A);
@@ -219,7 +220,7 @@ export function star(i: StarIn): StarOut | Err {
     }
   } else if (nLRT === 3) {
     const Lc = (R as number) ** 2 * ((T as number) / T_SUN) ** 4;
-    if (Math.abs(Lc / (L as number) - 1) > 0.02) notes.push(`L, R and T are inconsistent: R²(T/T☉)⁴ = ${Lc.toPrecision(4)} L☉, not ${(L as number).toPrecision(4)} L☉.`);
+    if (Math.abs(Lc / (L as number) - 1) > 0.02) notes.push(`L, R and T are inconsistent: R²(T/T☉)⁴ = ${fmtSig(Lc, 4)} L☉, not ${fmtSig(L as number, 4)} L☉.`);
   }
   const mbol = L !== null ? MBOL_SUN - 2.5 * Math.log10(L) : null;
   const flux = L !== null && d !== null ? (L * L_SUN) / (4 * Math.PI * (d * PC_M) ** 2) : null;
@@ -262,6 +263,9 @@ export interface CosmoOut {
   kpcPerArcsec: number;
   /** Recession velocity cz, km/s (the low-z Hubble-law convention). */
   czKms: number;
+  /** Radiation (photons + neutrinos) and Λ density parameters used. */
+  omegaR: number;
+  omegaL: number;
 }
 
 /** Adaptive Simpson's rule. */
@@ -278,18 +282,40 @@ function simpson(f: (x: number) => number, a: number, b: number, eps = 1e-11): n
   return rec(a, b, fa, fm, fb, s(a, b, fa, fm, fb), eps, 0);
 }
 
-export function cosmology(z: number, H0: number, Om: number): CosmoOut | Err {
+/** Photon and massless-neutrino density parameters for a CMB temperature (K), H₀ (km/s/Mpc) and Neff, as astropy:
+ * Ωγ = (4σT⁴/c³)/ρcrit with ρcrit = 3H₀²/(8πG); Ων = 0.22710731766·Neff·Ωγ (= 7/8·(4/11)^(4/3) per species). */
+export function radiationDensity(Tcmb: number, H0: number, Neff: number): { Ogamma: number; Onu: number } {
+  const h0 = (H0 * 1000) / (PC_M * 1e6); // s⁻¹
+  const rhoCrit = (3 * h0 * h0) / (8 * Math.PI * G);
+  const Ogamma = (4 * SIGMA_SB * Tcmb ** 4) / C_M_S ** 3 / rhoCrit;
+  return { Ogamma, Onu: 0.22710731766 * Neff * Ogamma };
+}
+
+/** The defaults: Planck-like H₀ and Ωm with the CMB at 2.7255 K and astropy's Neff = 3.04 massless neutrinos. */
+export const COSMO_TCMB = 2.7255;
+export const COSMO_NEFF = 3.04;
+
+/**
+ * Flat ΛCDM with matter, radiation (photons + massless neutrinos) and Λ: ΩΛ = 1 − Ωm − Ωr, as astropy FlatLambdaCDM
+ * with Tcmb0 and its default Neff. Integrals in the scale factor a, where the integrands stay finite at a = 0:
+ * D(C) = (c/H₀)∫ₐ¹ da/√(Ωr + Ωm·a + ΩΛ·a⁴), t(a) = (1/H₀)∫₀ᵃ a′da′/√(Ωr + Ωm·a′ + ΩΛ·a′⁴). Tcmb = 0 drops radiation.
+ */
+export function cosmology(z: number, H0: number, Om: number, Tcmb = COSMO_TCMB, Neff = COSMO_NEFF): CosmoOut | Err {
   if (!Number.isFinite(z) || z < 0) return err("The redshift z must be zero or positive.");
-  if (z > 1100) return err(`z = ${z} is beyond recombination (z ≈ 1100); this matter + Λ model leaves out radiation, which matters there.`);
+  if (z > 1100) return err(`z = ${z} is beyond recombination (z ≈ 1100), where the universe was opaque: no source is seen from there.`);
   if (!Number.isFinite(H0) || H0 < 20 || H0 > 150) return err("H₀ must be between 20 and 150 km/s/Mpc.");
-  if (!Number.isFinite(Om) || Om <= 0 || Om >= 1) return err("Ωm must be between 0 and 1 (flat: ΩΛ = 1 − Ωm).");
-  const OL = 1 - Om;
-  const E = (x: number): number => Math.sqrt(Om * (1 + x) ** 3 + OL);
+  if (!Number.isFinite(Om) || Om <= 0 || Om >= 1) return err("Ωm must be between 0 and 1 (flat: ΩΛ = 1 − Ωm − Ωr).");
+  const { Ogamma, Onu } = Tcmb > 0 ? radiationDensity(Tcmb, H0, Neff) : { Ogamma: 0, Onu: 0 };
+  const Or = Ogamma + Onu;
+  const OL = 1 - Om - Or;
+  const q = (a: number): number => Math.sqrt(Or + Om * a + OL * a ** 4);
   const dh = (C_M_S / 1000) / H0; // Mpc
   const th = (MPC_KM / H0) / GYR_S; // Gyr
-  const dc = z === 0 ? 0 : dh * simpson((x) => 1 / E(x), 0, z);
-  const lb = z === 0 ? 0 : th * simpson((x) => 1 / ((1 + x) * E(x)), 0, z);
-  const age = (zz: number): number => ((2 * th) / (3 * Math.sqrt(OL))) * Math.asinh(Math.sqrt(OL / Om) * Math.pow(1 + zz, -1.5));
+  const a = 1 / (1 + z);
+  const dc = z === 0 ? 0 : dh * simpson((x) => 1 / q(x), a, 1);
+  const age = (aa: number): number => th * simpson((x) => (x === 0 ? 0 : x / q(x)), 0, aa);
+  const age0 = age(1);
+  const ageZ = age(a);
   const da = dc / (1 + z);
   return {
     ok: true,
@@ -298,11 +324,13 @@ export function cosmology(z: number, H0: number, Om: number): CosmoOut | Err {
     comovingMpc: dc,
     luminosityMpc: dc * (1 + z),
     angularMpc: da,
-    lookbackGyr: lb,
-    ageGyr: age(z),
-    age0Gyr: age(0),
+    lookbackGyr: age0 - ageZ,
+    ageGyr: ageZ,
+    age0Gyr: age0,
     kpcPerArcsec: (da * 1000) / RAD_ARCSEC,
     czKms: (z * C_M_S) / 1000,
+    omegaR: Or,
+    omegaL: OL,
   };
 }
 
@@ -314,14 +342,19 @@ export interface KeplerOut {
   ok: true;
   aM: number;
   periodS: number;
-  /** Transit quantities (when the star and planet radii are given). */
+  /** Transit depth at mid-transit: the overlap of the planet's disc with a uniform stellar disc (null if it misses). */
   depth: number | null;
+  /** k² = (Rp/R★)², the depth of a non-grazing transit. */
+  k2: number | null;
   impact: number;
   inclinationDeg: number | null;
   t14H: number | null;
   t23H: number | null;
   transitProbability: number | null;
   rvKms: number | null;
+  /** For the light curve: Rp/R★ and a/R★. */
+  k: number | null;
+  aOverR: number | null;
   notes: string[];
 }
 
@@ -336,6 +369,20 @@ export interface KeplerIn {
   ecc: number;
 }
 
+/**
+ * The fraction of a uniform unit disc covered by a disc of radius k whose centre is d away (Mandel & Agol 2002, the
+ * uniform-source λᵉ): k² inside, 0 clear of the limb, the lens area across it.
+ */
+export function overlapFraction(d: number, k: number): number {
+  if (d >= 1 + k) return 0;
+  if (d <= 1 - k) return k * k;
+  if (d <= k - 1) return 1;
+  const k0 = Math.acos(Math.max(-1, Math.min(1, (k * k + d * d - 1) / (2 * k * d))));
+  const k1 = Math.acos(Math.max(-1, Math.min(1, (1 - k * k + d * d) / (2 * d))));
+  const root = Math.sqrt(Math.max(0, 4 * d * d - (1 + d * d - k * k) ** 2));
+  return (k * k * k0 + k1 - 0.5 * root) / Math.PI;
+}
+
 export function keplerTransit(i: KeplerIn): KeplerOut | Err {
   const bad = pos([["The central mass", i.muStar], ["The semi-major axis", i.aM], ["The period", i.periodS], ["The star's radius", i.rStarM], ["The planet's radius", i.rPlanetM]]);
   if (bad) return bad;
@@ -347,48 +394,52 @@ export function keplerTransit(i: KeplerIn): KeplerOut | Err {
   const a = i.aM ?? Math.cbrt((mu * (i.periodS as number) ** 2) / (4 * Math.PI * Math.PI));
   const P = i.periodS ?? 2 * Math.PI * Math.sqrt(a ** 3 / mu);
   const notes: string[] = [];
-  let depth: number | null = null, inc: number | null = null, t14: number | null = null, t23: number | null = null, prob: number | null = null;
+  let depth: number | null = null, k2: number | null = null, inc: number | null = null, t14: number | null = null, t23: number | null = null, prob: number | null = null;
+  let kk: number | null = null, aR: number | null = null;
   if (i.rStarM !== null && i.rPlanetM !== null) {
     if (i.rPlanetM >= i.rStarM) return err("The planet's radius must be smaller than the star's for a transit (k = Rp/R★ < 1).");
     if (a <= i.rStarM) return err(`The orbit (a = ${(a / i.rStarM).toFixed(3)} R★) lies inside the star.`);
     const k = i.rPlanetM / i.rStarM;
-    depth = k * k;
-    prob = i.rStarM / a;
     const b = i.impact;
+    if (b * i.rStarM >= a) return err(`b = ${b} puts the orbit's closest approach (b·R★) beyond the orbit itself (a = ${(a / i.rStarM).toFixed(3)} R★): b must be below a/R★.`);
+    kk = k;
+    aR = a / i.rStarM;
+    // b fixes the inclination whether or not the planet crosses the disc (review minor 6: K uses this sin i too).
+    const cosi = (b * i.rStarM) / a;
+    inc = Math.acos(cosi) * (180 / Math.PI);
     if (b >= 1 + k) {
-      notes.push(`b = ${b} ≥ 1 + k = ${(1 + k).toFixed(4)}: the planet passes clear of the stellar disc, so there is no transit.`);
+      notes.push(`b = ${b} ≥ 1 + k = ${(1 + k).toFixed(4)}: the planet passes clear of the stellar disc, so there is no transit (no depth or duration; the inclination ${inc.toFixed(3)}° still sets K).`);
     } else {
-      const cosi = (b * i.rStarM) / a;
-      inc = Math.acos(cosi) * (180 / Math.PI);
+      k2 = k * k;
+      depth = overlapFraction(b, k);
+      prob = i.rStarM / a;
       const sini = Math.sqrt(1 - cosi * cosi);
-      const durFor = (kk: number): number | null => {
-        const q = (1 + kk) ** 2 - b * b;
-        if (q <= 0) return null;
-        return (P / Math.PI) * Math.asin(Math.min(1, ((i.rStarM as number) / a) * Math.sqrt(q) / sini)) / 3600;
-      };
-      t14 = durFor(k);
+      const q14 = (1 + k) ** 2 - b * b;
+      t14 = (P / Math.PI) * Math.asin(Math.min(1, ((i.rStarM as number) / a) * Math.sqrt(q14) / sini)) / 3600;
       const q23 = (1 - k) ** 2 - b * b;
       t23 = q23 > 0 ? (P / Math.PI) * Math.asin(Math.min(1, (i.rStarM / a) * Math.sqrt(q23) / sini)) / 3600 : 0;
-      if (q23 <= 0) notes.push("A grazing transit (b > 1 − k): the planet never lies wholly inside the disc, so there is no flat bottom and the depth shown is an upper bound.");
+      if (q23 <= 0) notes.push(`A grazing transit (b > 1 − k): the planet never lies wholly inside the disc, so the deepest point covers ${fmtSig(depth * 100, 3)} % of the star, not k² = ${fmtSig(k * k * 100, 3)} %, and there is no flat bottom.`);
       if (i.ecc > 0) notes.push("The transit duration uses a circular orbit; an eccentric orbit changes it by the speed at conjunction (not modelled).");
     }
   }
   const sini = inc !== null ? Math.sin(inc * (Math.PI / 180)) : 1;
   const rv = i.muPlanet > 0 ? Math.cbrt((2 * Math.PI * G) / P) * ((i.muPlanet / G) * sini) / Math.pow(mu / G, 2 / 3) / Math.sqrt(1 - i.ecc * i.ecc) / 1000 : null;
-  return { ok: true, aM: a, periodS: P, depth, impact: i.impact, inclinationDeg: inc, t14H: t14, t23H: t23, transitProbability: prob, rvKms: rv, notes };
+  return { ok: true, aM: a, periodS: P, depth, k2, impact: i.impact, inclinationDeg: inc, t14H: t14, t23H: t23, transitProbability: prob, rvKms: rv, k: kk, aOverR: aR, notes };
 }
 
-/** A trapezoid light curve: relative flux against hours from mid-transit (no limb darkening). */
-export function transitCurve(depth: number, t14H: number, t23H: number, n = 241): Array<{ x: number; y: number }> {
+/**
+ * The light curve of a uniform stellar disc: relative flux against hours from mid-transit, the sky-projected
+ * separation of a circular orbit, d(t) = (a/R★)·√(sin²φ + cos²i·cos²φ), φ = 2πt/P, through the overlap area.
+ */
+export function transitCurve(k: number, aOverR: number, b: number, periodH: number, t14H: number, n = 241): Array<{ x: number; y: number }> {
   const span = t14H * 0.8;
+  const cosi = b / aOverR;
   const pts: Array<{ x: number; y: number }> = [];
-  for (let k = 0; k < n; k++) {
-    const t = -t14H / 2 - span + ((t14H + 2 * span) * k) / (n - 1);
-    const at = Math.abs(t);
-    let f = 1;
-    if (at <= t23H / 2) f = 1 - depth;
-    else if (at < t14H / 2) f = 1 - (depth * (t14H / 2 - at)) / ((t14H - t23H) / 2 || 1e-9);
-    pts.push({ x: t, y: f });
+  for (let j = 0; j < n; j++) {
+    const t = -t14H / 2 - span + ((t14H + 2 * span) * j) / (n - 1);
+    const ph = (2 * Math.PI * t) / periodH;
+    const d = aOverR * Math.sqrt(Math.sin(ph) ** 2 + (cosi * Math.cos(ph)) ** 2);
+    pts.push({ x: t, y: 1 - overlapFraction(d, k) });
   }
   return pts;
 }

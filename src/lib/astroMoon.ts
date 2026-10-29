@@ -288,11 +288,13 @@ export function solarEclipseAt(newTT: number): SolarEclipse | null {
     const magnitude = Math.asin(MOON_RADIUS_KM / g.dMoonSurf) / Math.asin(SUN_RADIUS_KM / g.dSunSurf);
     return { type, central: true, jdTT: t, gamma: signed, magnitude };
   }
+  // Meeus 54: magnitude = (1.5433 + u − |γ|)/(0.5461 + 2u), u his umbral radius (positive when ANNULAR). Here L2 is
+  // positive when TOTAL (u = −L2) and L1 = 0.5461 + u, so the denominator is L1 − L2, not L1 + L2 (review B1).
   if (g.gamma < 0.9972 + Math.abs(L2)) {
     // Non-central: the umbra or antumbra grazes the polar regions while its axis misses the Earth.
-    return { type: L2 > 0 ? "total" : "annular", central: false, jdTT: t, gamma: signed, magnitude: (0.9972 + L1 - g.gamma) / (L1 + L2) };
+    return { type: L2 > 0 ? "total" : "annular", central: false, jdTT: t, gamma: signed, magnitude: (0.9972 + L1 - g.gamma) / (L1 - L2) };
   }
-  return { type: "partial", central: false, jdTT: t, gamma: signed, magnitude: (0.9972 + L1 - g.gamma) / (L1 + L2) };
+  return { type: "partial", central: false, jdTT: t, gamma: signed, magnitude: (0.9972 + L1 - g.gamma) / (L1 - L2) };
 }
 
 /** Eclipses from jd0 (TT) for `days`: each New and Full Moon checked. */

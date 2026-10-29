@@ -256,7 +256,11 @@ out['cosmo'] = [{'z': z, 'dc': cos.comoving_distance(z).to(u.Mpc).value, 'dl': c
                  'da': cos.angular_diameter_distance(z).to(u.Mpc).value, 'lookback': cos.lookback_time(z).to(u.Gyr).value,
                  'age': cos.age(z).to(u.Gyr).value} for z in zs]
 out['cosmo_age0'] = cos.age(0).to(u.Gyr).value
-cos_rad = FlatLambdaCDM(H0=67.7, Om0=0.31, Tcmb0=2.7255)
+cos_rad = FlatLambdaCDM(H0=67.7, Om0=0.31, Tcmb0=2.7255)  # default Neff 3.04, massless neutrinos
+out['cosmo_rad'] = [{'z': z, 'dc': cos_rad.comoving_distance(z).to(u.Mpc).value,
+                     'lookback': cos_rad.lookback_time(z).to(u.Gyr).value, 'age': cos_rad.age(z).to(u.Gyr).value}
+                    for z in [0.01, 1.0, 5.0, 100.0, 1100.0]]
+out['cosmo_rad_age0'] = float(cos_rad.age(0).to(u.Gyr).value)
 out['cosmo_radiation_dc_ratio_z1'] = float(cos_rad.comoving_distance(1.0).value / cos.comoving_distance(1.0).value)
 
 with open(OUT, 'w') as f:

@@ -214,7 +214,7 @@ export function moonCalendarSvg(title: string, firstWeekday: number, cells: Cale
 // Ecliptic strip
 // ---------------------------------------------------------------------------------------------------------------
 
-const BODY_COLOURS: Record<string, string> = { Sun: "#e0a800", Moon: "#777777", Mercury: "#8c6d46", Venus: "#d4a017", Mars: RED, Jupiter: ORANGE, Saturn: "#b08d57", Uranus: "#2aa198", Neptune: BLUE };
+const BODY_COLOURS: Record<string, string> = { Sun: "#e0a800", Moon: "#777777", Mercury: "#8c6d46", Venus: "#8e44ad", Mars: RED, Jupiter: ORANGE, Saturn: "#b08d57", Uranus: "#2aa198", Neptune: BLUE };
 
 /** Ecliptic longitude (decreasing to the right, as the sky looks facing south) against latitude, every body a series. */
 export function eclipticStripSvg(bodies: Array<{ label: string; lonDeg: number; latDeg: number }>): string {
@@ -224,7 +224,8 @@ export function eclipticStripSvg(bodies: Array<{ label: string; lonDeg: number; 
     xlabel: "Ecliptic longitude (°), east to the left",
     ylabel: "Ecliptic latitude (°)",
     xLimits: { min: -360, max: 0 },
-    yLimits: { min: -8, max: 8 },
+    // Fitted to the bodies (review M5: Venus reaches β = 8.4°, past a fixed ±8°).
+    yLimits: (() => { const m = Math.max(8, ...bodies.map((b) => Math.abs(b.latDeg))); const lim = Math.ceil(m + 1); return { min: -lim, max: lim }; })(),
     xTickLabel: (v) => String(Math.round(-v)),
     width: W,
     height: 300,
@@ -273,7 +274,7 @@ export function hrDiagramSvg(T: number, L: number, label: string): string {
     points: tGrid.map((t) => ({ x: -Math.log10(t), y: R * R * (t / 5772) ** 4 })).filter((p) => p.y >= 1e-5 && p.y <= 1e7),
     type: "line" as const,
     color: i === 2 ? "#999999" : "#cfcfcf",
-    label: i === 0 || i === 5 ? `R = ${sig(R)} R☉` : undefined,
+    label: `R = ${sig(R)} R☉`,
   }));
   s.push({ points: [{ x: -Math.log10(5772), y: 1 }], type: "scatter", color: "#e0a800", label: "Sun" });
   s.push({ points: [{ x: -Math.log10(T), y: L }], type: "scatter", color: RED, label });
@@ -312,10 +313,10 @@ export function cosmologyChartSvg(curves: { z: number[]; dc: number[]; dl: numbe
   const mk = (ys: number[]): Array<{ x: number; y: number }> => curves.z.map((x, i) => ({ x, y: ys[i] }));
   return buildPlotSvg(
     [
-      { points: mk(curves.dl), type: "line", color: RED, label: "luminosity distance" },
-      { points: mk(curves.dc), type: "line", color: BLUE, label: "comoving distance" },
-      { points: mk(curves.da), type: "line", color: GREEN, label: "angular-diameter distance" },
-      { points: mk(curves.hub), type: "line", color: GREY, label: "Hubble law cz/H₀" },
+      { points: mk(curves.dl), type: "line", color: RED, label: "luminosity" },
+      { points: mk(curves.dc), type: "line", color: BLUE, label: "comoving" },
+      { points: mk(curves.da), type: "line", color: GREEN, label: "angular diameter" },
+      { points: mk(curves.hub), type: "line", color: GREY, label: "Hubble law" },
       { points: [{ x: z, y: dl }], type: "scatter", color: INK, label: `z = ${sig(z, 3)}` },
     ],
     { xlabel: "Redshift z", ylabel: "Distance (Mpc)", width: W, height: 300 },

@@ -46,7 +46,9 @@ export const BODIES: Body[] = [
   { id: "venus", label: "Venus", mu: 3.24858592e14, radius: 6.0518e6, source: "IAU 2009 (μ); IAU WGCCRE: 2015 (radius)" },
   { id: "saturn", label: "Saturn", mu: 3.79312077e16, radius: 6.0268e7, source: "IAU 2009 (μ); IAU WGCCRE: 2015 (radius)" },
   { id: "uranus", label: "Uranus", mu: 5.7939393e15, radius: 2.5559e7, source: "IAU 2009 (μ); IAU WGCCRE: 2015 (radius)" },
-  { id: "neptune", label: "Neptune", mu: 6.836527100580397e15, radius: 2.4764e7, source: "IAU 2009 (μ); IAU WGCCRE: 2015 (radius)" },
+  // Neptune: poliastro's GM_neptune is the SYSTEM value (Triton included); the planet alone, as for Saturn and Uranus
+  // here, is JPL SSD's 6835099.97 km³/s² (ssd.jpl.nasa.gov/sats/phys_par/, planet GM table, NEP097).
+  { id: "neptune", label: "Neptune", mu: 6.83509997e15, radius: 2.4764e7, source: "JPL SSD NEP097 (μ, planet only); IAU WGCCRE: 2015 (radius)" },
 ];
 
 export function bodyById(id: string): Body | undefined {

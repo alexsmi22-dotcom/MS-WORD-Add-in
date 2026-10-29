@@ -184,13 +184,27 @@ export function parseRA(text: string): { hours: number } | { error: string } {
 }
 
 /** Degrees from "−12° 34′ 56″", "-12:34:56", "-12 34 56" or decimal degrees; limits checked by the caller. */
-export function parseDeg(text: string): { deg: number } | { error: string } {
-  const raw = (text ?? "").trim();
+export function parseDeg(text: string, kind: "lat" | "lon" | "angle" = "angle"): { deg: number } | { error: string } {
+  let raw = (text ?? "").trim();
   if (!raw) return { error: "this field is required." };
+  // A hemisphere letter, leading or trailing, any case ("33.87 S", "33°52′S", "W 77.03"). Read BEFORE the
+  // sexagesimal marks, because a lowercase "s" would otherwise be taken for arcseconds and south become north (B3).
+  let sign = 1;
+  const hm = /^([NSEWnsew])\s*(.+)$/.exec(raw) ?? /^(.+?)\s*([NSEWnsew])$/.exec(raw);
+  if (hm) {
+    const letter = (/^[NSEWnsew]$/.test(hm[1]) ? hm[1] : hm[2]).toUpperCase();
+    const body = /^[NSEWnsew]$/.test(hm[1]) ? hm[2] : hm[1];
+    const allowed = kind === "lat" ? "NS" : kind === "lon" ? "EW" : "";
+    if (!allowed.includes(letter))
+      return { error: kind === "angle" ? `"${raw}" carries a compass letter; a declination or angle takes a sign instead (write −12.5, not 12.5 S).` : `"${raw}": ${letter} is not a ${kind === "lat" ? "latitude hemisphere (N or S)" : "longitude hemisphere (E or W)"}.` };
+    if (/^\s*[-−–+]/.test(body)) return { error: `"${raw}" has both a sign and a hemisphere letter; give one or the other.` };
+    sign = letter === "S" || letter === "W" ? -1 : 1;
+    raw = body.trim();
+  }
   const p = sexParts(raw.replace(/deg\s*$/i, ""));
-  if (!p) return { error: `"${raw}" is not an angle (write −12° 34′ 56″, -12:34:56, or −12.582).` };
+  if (!p) return { error: `"${(text ?? "").trim()}" is not an angle (write −12° 34′ 56″, -12:34:56, −12.582${kind === "lat" ? ", or 33°52′ S" : kind === "lon" ? ", or 77.03 W" : ""}).` };
   const v = p.parts[0] + (p.parts[1] ?? 0) / 60 + (p.parts[2] ?? 0) / 3600;
-  return { deg: p.neg ? -v : v };
+  return { deg: sign * (p.neg ? -v : v) };
 }
 
 /**

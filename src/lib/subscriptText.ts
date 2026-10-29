@@ -23,9 +23,6 @@ const FILE_EXT = "(?:exr|dpx|cin|tif|tiff|png|jpg|jpeg|tga|hdr|tx|wav|aif|aiff|m
 const FILE_TOKEN = new RegExp(`_\\S*\\.${FILE_EXT}(?=[)\\].,;:]*(?:\\s|$))`, "i");
 const FILE_TOKEN_ONE = new RegExp(`^\\S*_\\S*\\.${FILE_EXT}[)\\].,;:]*$`, "i");
 
-/** A whitespace-delimited token that is a media file name (kept as typed by tidySubscripts). */
-export const isFileNameToken = (tok: string): boolean => FILE_TOKEN_ONE.test(tok);
-
 /** One text with its underscore subscripts typeset. */
 export function tidySubscripts(text: string): string {
   if (!text.includes("_")) return text;

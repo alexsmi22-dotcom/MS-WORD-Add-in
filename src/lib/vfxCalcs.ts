@@ -353,7 +353,7 @@ const frameRangeCalc: VfxCalc = {
     lines.push({ math: "f_plate = f_edit + (F_start + h_head - t_in)", fallback: "f(plate) = f(edit) + (F(start) + h(head) − t(in))" });
     lines.push(`Cut ${vals.cutIn} to ${vals.cutOut} (${res.cutLength} frames) → plate frames ${res.cutFirst} to ${res.cutLast}; with handles, plate ${res.plateFirst} to ${res.plateLast} (${res.total} frames). Plate frame = editorial frame ${res.offset >= 0 ? "+" : "−"} ${Math.abs(res.offset)}.`);
     lines.push(`File patterns: ${patterns[0]} (printf: Nuke, ffmpeg, OIIO); ${patterns[1]} (Nuke, RV, Resolve: one # per digit); ${patterns[2]} (Houdini). First file ${name(res.plateFirst)}, cut in ${name(res.cutFirst)}, cut out ${name(res.cutLast)}, last ${name(res.plateLast)}.`);
-    lines.push(`The last frame needs ${res.digits} digit${res.digits === 1 ? "" : "s"}; the pad overflows at frame ${"1" + "0".repeat(pad)}, ${Math.pow(10, pad) - 1 - res.plateLast} frames past this plate.`);
+    lines.push(`The last frame needs ${res.digits} digit${res.digits === 1 ? "" : "s"}; the pad overflows at frame ${"1" + "0".repeat(pad)}, ${Math.pow(10, pad) - 1 - res.plateLast} frames of headroom past this plate.`);
     lines.push({ math: "n_a = f_s/f", fallback: "nₐ = fₛ/f" });
     if (whole) lines.push(`${khz} kHz at ${rate.label} fps: ${cad.sequence[0]} samples in every frame, so any whole-frame offset is a whole number of samples.`);
     else {
@@ -426,8 +426,8 @@ const cameraCalc: VfxCalc = {
   hint:
     "Match a CG camera to a plate: the sensor area recorded (an ARRI preset from ARRI's published data, or typed), the " +
     "anamorphic squeeze, and the focal length or a field of view give the horizontal, vertical and diagonal fields of " +
-    "view, the crop factor and full-frame equivalent, the aperture in inches for Maya and in mm for Houdini, Nuke and " +
-    "Blender, and what the film-fit mode does when the image aspect differs from the filmback. Depth of field and " +
+    "view, the crop factor and full-frame equivalent, the aperture in inches for Maya and the horizontal aperture in mm " +
+    "(Houdini), and what the film-fit mode does when the image aspect differs from the filmback. Depth of field and " +
     "circle of confusion are under Exposure (Light & camera); pixel and display aspect under Aspect (Video & display).",
   fields: [
     { key: "preset", label: "Sensor / filmback", default: "lf-og", kind: "select", options: [{ value: "custom", label: "Custom (type the width and height)" }, ...SENSOR_PRESETS.map((p) => ({ value: p.id, label: p.label }))] },
@@ -490,7 +490,7 @@ const cameraCalc: VfxCalc = {
       `Image ${res[0]} × ${res[1]} px${squeeze > 1 ? ` (pixel aspect ${squeeze}, desqueezed aspect ${t(c.imageAspect, 4)}:1)` : ` (aspect ${t(c.imageAspect, 4)}:1)`} against filmback ${t(c.filmAspect, 4)}:1. Film fit ${fitWord} fits ${c.resolvedFit === "horizontal" ? "the width" : "the height"}: the render gate is ${t(c.gateW, 5)} × ${t(c.gateH, 5)} mm, ${t(c.renderH, 5)}° × ${t(c.renderV, 5)}°` +
         (c.aspectMatch ? ", the filmback itself (the aspects agree within 0.1 %, so every fit mode gives the same camera)." : covW || covH ? `, and ${[covW, covH].filter(Boolean).join(" and ")}, so the CG camera sees beyond the plate there (overscan: extend the plate or crop the render).` : c.gateW < c.We - 1e-9 || c.gateH < Hh - 1e-9 ? ", inside the filmback: the render crops the plate." : ", the same as the filmback."),
     );
-    lines.push(`CG settings: Maya Camera Aperture ${inch(W)} × ${inch(Hh)} in${squeeze > 1 ? `, Lens Squeeze Ratio ${squeeze}` : ""}, Film Fit ${fitWord}; Houdini Focal Length ${t(c.f, 5)} mm with Aperture ${t(c.We, 5)} mm${squeeze > 1 ? ` and Pixel Aspect Ratio ${squeeze}` : ""}; Nuke Camera horizontal aperture ${t(c.We, 5)} mm, vertical ${t(Hh)} mm; Blender Sensor Width ${t(c.We, 5)} mm, Sensor Fit Horizontal${squeeze > 1 ? `, pixel aspect X ${squeeze}` : ""}.`);
+    lines.push(`CG settings: Maya Camera Aperture ${inch(W)} × ${inch(Hh)} in${squeeze > 1 ? `, Lens Squeeze Ratio ${squeeze}` : ""}, Film Fit ${fitWord}. In a package that takes one horizontal aperture in mm (Houdini's Aperture), give the ${squeeze > 1 ? "desqueezed " : ""}width ${t(c.We, 5)} mm with focal length ${t(c.f, 5)} mm, which gives the same ${t(c.hFov, 5)}° across${squeeze > 1 ? `; how each package is told about the ${squeeze}× pixel aspect differs, so check its camera documentation` : ""}.`);
     lines.push("Assumes: a pinhole (rectilinear) lens focused at infinity: a real lens focused close has a longer effective focal length (focus breathing) and distortion, which a lens grid measures. The filmback is the area recorded in this sensor mode, not the whole sensor. Preset sizes are ARRI's published active image areas.");
     const rows: string[][] = [
       ["Quantity", "Value"],
@@ -501,7 +501,7 @@ const cameraCalc: VfxCalc = {
       ["Crop factor (diagonal)", t(c.crop, 5)],
       ["Full-frame equivalent focal length", `${t(c.fEqDiag, 5)} mm`],
       ["Maya Camera Aperture", `${inch(W)} × ${inch(Hh)} in`],
-      ["Houdini / Nuke / Blender aperture", `${t(c.We, 5)} mm horizontal`],
+      ["Horizontal aperture (Houdini)", `${t(c.We, 5)} mm`],
       [`Render (${fitWord})`, `${t(c.renderH, 5)}° × ${t(c.renderV, 5)}°`],
     ];
     const outputs: EngOutput[] = [
@@ -1027,8 +1027,8 @@ const chromaCalc: VfxCalc = {
     lines.push({ math: "C_r = (R' - Y')/(2 (1 - K_R))", fallback: "C(r) = (R′ − Y′)/(2(1 − K(R)))" });
     lines.push({ math: "alpha = min(1, max(0, (d - t)/s))", fallback: "α = min(1, max(0, (d − t)/s))" });
     lines.push(`BT.${m}: K(R) = ${KR(m)[0]}, K(B) = ${KR(m)[1]}. Key Y′CbCr ${v3(k.keyYcc, 5)}; pixel ${v3(k.pixYcc, 5)} (Y′ 0 to 1, Cb and Cr −0.5 to 0.5; 8-bit narrow range: Y′ ${d(16 + 219 * k.pixYcc[0], 1)}, Cb ${d(128 + 224 * k.pixYcc[1], 1)}, Cr ${d(128 + 224 * k.pixYcc[2], 1)}).`);
-    lines.push(`Distance: CbCr ${d(k.dCbCr, 5)}, RGB ${d(k.dRgb, 5)} (RGB distances run to √3 = 1.732; CbCr to √2/2 = 0.7071 for colours inside the RGB cube). The alpha uses the ${metric === "cbcr" ? "CbCr" : "RGB"} distance: tolerance ${t(tol)}, softness ${t(soft)}${soft === 0 ? " (a hard key)" : ""}, alpha ${d(k.alpha, 5)}.`);
-    lines.push(`Spill: ${ch} is limited to the ${variant === "average" ? `average of ${others}, ${d(k.limit, 5)}` : `larger of ${others}, ${d(k.limit, 5)}`}; suppressed pixel ${v3(k.suppressed, 5)}, ${d(k.spill, 5)} of ${ch} removed. The ${variant === "average" ? "max" : "average"} variant's limit would be ${d(k.otherLimit, 5)} (${variant === "average" ? "gentler: it keeps more of yellows and cyans" : "stronger: it also pulls greys toward magenta"}).`);
+    lines.push(`Distance: CbCr ${d(k.dCbCr, 5)}, RGB ${d(k.dRgb, 5)} (an RGB distance runs to √3 = 1.732, black to white; the CbCr distance ignores brightness, so a shadow on the screen is as close to the key as the lit screen). The alpha uses the ${metric === "cbcr" ? "CbCr" : "RGB"} distance: tolerance ${t(tol)}, softness ${t(soft)}${soft === 0 ? " (a hard key)" : ""}, alpha ${d(k.alpha, 5)}.`);
+    lines.push(`Spill: ${ch} is limited to the ${variant === "average" ? `average of ${others}, ${d(k.limit, 5)}` : `larger of ${others}, ${d(k.limit, 5)}`}; suppressed pixel ${v3(k.suppressed, 5)}, ${d(k.spill, 5)} of ${ch} removed. The ${variant === "average" ? "max" : "average"} variant's limit would be ${d(k.otherLimit, 5)} (${variant === "average" ? "gentler: it keeps more of yellows and cyans" : "stronger: it also cuts the " + ch + " out of " + (k.channel === 1 ? "yellows and cyans" : "cyans and magentas")}).`);
     lines.push("Assumes: gamma-encoded R′G′B′ (Y′CbCr is defined on the encoded signal, not on linear light), full-range values, and a key that is a single colour; keyers such as Keylight and Primatte use their own colour models. The ramp is linear in the distance.");
     const rows: string[][] = [
       ["Quantity", "Key", "Pixel"],

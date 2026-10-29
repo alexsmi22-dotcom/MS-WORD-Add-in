@@ -29,7 +29,7 @@ values derived by hand.
   samples and milliseconds. Figure: the plate as a timeline.
 - **Camera match:** horizontal, vertical and diagonal field of view ↔ focal length; ARRI ALEXA Mini LF and ALEXA 35
   sensor modes from ARRI's published data; anamorphic squeeze 1.3× to 2×; crop factor and full-frame equivalents; the
-  Maya aperture in inches and the Houdini, Nuke and Blender settings; what Fill, Horizontal, Vertical and Overscan film
+  Maya aperture in inches and the horizontal aperture in mm (Houdini); what Fill, Horizontal, Vertical and Overscan film
   fit do when the image and filmback aspects differ. Figure: field-of-view wedges.
 - **Camera projection, parallax & screen-space motion blur:** pinhole projection of a world point to pixels (top-left
   and Nuke's bottom-left origins), screen velocity and blur length for a camera move, and the parallax between two
@@ -41,8 +41,8 @@ values derived by hand.
   Blinn–Phong and Phong, and Schlick's Fresnel beside the exact dielectric value. A zero-length normal is refused.
   Figure: the shading vectors.
 - **Camera log ↔ scene linear:** ARRI LogC3 (EI 800) and LogC4, Sony S-Log3, Panasonic V-Log, RED Log3G10, ACEScct,
-  ACEScc and Cineon (your black and white points), each the manufacturer's formula and each checked twice: against
-  colour-science and against a published code value (S-Log3 18 % grey 420, V-Log 433, LogC3 0.391, Log3G10 1/3).
+  ACEScc and Cineon (your black and white points), each the published formula and each checked twice: against
+  colour-science and against the document itself (Sony 95/420/598, Panasonic 128/433/602, ARRI 0.391 and the LogC4 test vectors, RED's mapping table, the ACES specifications' constants; Cineon's parameters from Autodesk and the SMPTE Journal, Kodak's own note not found).
   A code below the curve's black decodes to a negative linear value and says so. Figure: the curve with the point.
 - **Compositing:** Porter–Duff over, in, out, atop, xor and plus on premultiplied RGBA, the error of the wrong alpha
   association (premultiplying twice darkens edges; straight colour used as premultiplied brightens them), and

@@ -5,7 +5,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { AnalyzeOutput } from "../analyzeBlocks";
 import { mathToOmml } from "../mathOmml";
-import { isFileNameToken, tidyResultSubscripts, tidySubscripts } from "../subscriptText";
+import { tidyResultSubscripts, tidySubscripts } from "../subscriptText";
 
 describe("tidySubscripts", () => {
   test.each([
@@ -74,6 +74,8 @@ describe("every library registry tool, on its defaults", () => {
     }
     for (const o of out.outputs ?? []) texts.push(o.label);
     // A media file name (sh010_comp_v001.1001.exr) is printed as typed, underscores and all.
+    // (A token the tidy pass leaves alone that ends in a file extension: the exemption tidySubscripts itself applies.)
+    const isFileNameToken = (tok: string): boolean => tok.includes("_") && /\.[A-Za-z0-9]{2,5}[)\].,;:]*$/.test(tok) && tidySubscripts(tok) === tok;
     const left = texts.filter((t) => /[A-Za-zα-ωΑ-Ω)\]⟩|]_[A-Za-z0-9{]/.test(t.split(/\s+/).filter((tok) => !isFileNameToken(tok)).join(" ")));
     expect({ id, left }).toEqual({ id, left: [] });
   });

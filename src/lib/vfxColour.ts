@@ -3,19 +3,28 @@
 // Pure functions; the pane glue is vfxCalcs.ts. Colour difference, conversion between colour spaces, chromatic
 // adaptation and contrast are the Colour & appearance group's; this file keeps to what a compositor computes.
 //
-// LOG CURVES. Each is the manufacturer's published formula; a curve stays only where a second source agrees (the
-// colour-science 0.4.7 implementation, checked in vfxLog.oracle.test.ts, AND a published code value):
-//   ARRI LogC3, EI 800 (ARRI, "ALEXA Log C Curve: Usage in VFX", SUP 3.x, scene-linear exposure): 18 % grey 0.3910.
-//   ARRI LogC4 (ARRI, "ARRI LogC4 Logarithmic Color Space Specification"): 18 % grey 0.2784, linear 0 at 95/1023.
-//   Sony S-Log3 (Sony, "Technical Summary for S-Gamut3.Cine/S-Log3 and S-Gamut3/S-Log3"): 0 %, 18 %, 90 % at 10-bit
-//     95, 420, 598.
-//   Panasonic V-Log (Panasonic, "V-Log/V-Gamut Reference Manual"): 0 %, 18 %, 90 % at 10-bit 128, 433, 602.
-//   RED Log3G10 (RED, "REDWideGamutRGB and Log3G10" white paper, v3 with the 0.01 offset): 18 % grey at 1/3.
-//   ACEScct (Academy S-2016-001) and ACEScc (S-2014-003): 18 % grey 0.4135884 (both, above the toe).
-//   Cineon (Kodak, "Conversion of 10-bit Log Film Data to 8-bit Linear or Video Data for the Cineon Digital Film
-//     System", v2.1): reference black 95 and white 685, 0.002 density per code value, negative gamma 0.6.
+// LOG CURVES. Each is the published formula, and a curve stays only where two sources agree: the colour-science 0.4.7
+// implementation (vfxCalcs.test.ts, fixtures/vfx-oracle.json) AND the document named here, READ on 2026-10-29 (the
+// numbers in brackets are what that document prints):
+//   ARRI LogC3, EI 800 — ARRI, "ALEXA Log C Curve: Usage in VFX" (2017-03): the EI 800 row of cut, a, b, c, d, e, f
+//     (0.010591, 5.555556, 0.052272, 0.247190, 0.385537, 5.367655, 0.092809), and "18% gray … 0.391, which is 400/1023".
+//   ARRI LogC4 — ARRI, "ARRI LogC4 Logarithmic Color Space Specification": test vectors scene linear 0.0 → 0.0929 and
+//     0.18 → 0.2784.
+//   Sony S-Log3 — Sony, "Technical Summary for S-Gamut3.Cine/S-Log3 and S-Gamut3/S-Log3" V1.00 (appendix formula, and
+//     the 10-bit table: 0 % → 95, 18 % → 420, 90 % → 598).
+//   Panasonic V-Log — Panasonic's DC-GH5M2 operating instructions, V-Log L table (0 %, 18 %, 90 % → 10-bit 128, 433,
+//     602); the V-Log/V-Gamut Reference Manual itself could not be downloaded.
+//   RED Log3G10 — RED, "White Paper on REDWideGamutRGB and Log3G10" (915-0187 Rev C): a = 0.224282, b = 155.975327,
+//     c = 0.01, g = 15.1927, and the mapping table (−0.01 → 0, 0 → 0.091551, 0.18 → 0.333333, 1 → 0.493449,
+//     184.322 → 1).
+//   ACEScct and ACEScc — the Academy specifications S-2016-001 and S-2014-003 (their LaTeX sources): every constant and
+//     break point of the encoding and decoding equations. (18 % grey, 0.4135884, follows from them; it is not a
+//     separate published number.)
+//   Cineon — Kodak's own conversion note could not be found. Two secondary sources agree on its parameters: Autodesk's
+//     Lustre documentation (reference white 685, black 95, film gamma 0.6) and the SMPTE Journal (Kennel and Snider,
+//     0.002 density per code value over a 2.048 density range). Black and white are user inputs here.
 // Canon Log 3 is LEFT OUT: only colour-science's implementation (two differing methods, v1 and v1.2) could be found;
-// Canon's own white paper value for 18 % grey could not be read, so it fails the two-source rule.
+// Canon's own published value for 18 % grey could not be read, so it fails the two-source rule.
 
 export interface Err {
   ok: false;
@@ -75,7 +84,7 @@ export function cineonCurve(black: number, white: number): LogCurve {
     decode: (y) => (Math.pow(10, ((y * 1023 - white) * 0.002) / 0.6) - offset) / (1 - offset),
     minLinear: -offset / (1 - offset),
     published: [[0, black / 1023], [1, white / 1023]],
-    source: "Kodak, Conversion of 10-bit Log Film Data to 8-bit Linear or Video Data for the Cineon Digital Film System (v2.1): reference black and white, 0.002 density per code value, gamma 0.6",
+    source: "the Kodak Cineon convention (reference black 95 and white 685, film gamma 0.6, 0.002 density per code value), as Autodesk Lustre and the SMPTE Journal state it",
     note: "Cineon printing density: 1.0 linear is the reference white, not the brightest value a negative holds (codes above the white point are highlights).",
   };
 }
@@ -118,7 +127,7 @@ export const LOG_CURVES: LogCurve[] = [
     decode: (y) => (y < VL.cut2 ? (y - 0.125) / 5.6 : Math.pow(10, (y - VL.d) / VL.c) - VL.b),
     minLinear: -Infinity,
     published: [[0, 128 / 1023], [0.18, 433 / 1023], [0.9, 602 / 1023]],
-    source: "Panasonic, V-Log/V-Gamut Reference Manual",
+    source: "Panasonic V-Log formula (V-Log/V-Gamut Reference Manual); 0 %, 18 %, 90 % at 10-bit 128, 433, 602 as Panasonic's camera instructions print them",
     note: "V-Log code values are 10-bit full range.",
   },
   {
@@ -131,7 +140,7 @@ export const LOG_CURVES: LogCurve[] = [
     decode: (y) => (y < 0 ? y / RL.g - RL.c : (Math.pow(10, y / RL.a) - 1) / RL.b - RL.c),
     minLinear: -Infinity,
     published: [[0.18, 1 / 3]],
-    source: "RED, REDWideGamutRGB and Log3G10 white paper (v3, with the 0.01 black offset): 18 % grey at 1/3, ten stops above it at 1.0",
+    source: "RED, White Paper on REDWideGamutRGB and Log3G10 (915-0187 Rev C): 18 % grey at 1/3, ten stops above it at 1.0",
     note: "Log3G10 places 18 % grey at 1/3 by design.",
   },
   {

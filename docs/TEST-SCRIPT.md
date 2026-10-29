@@ -16,7 +16,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Retime & speed ramp** (defaults) → first line "At 40 % speed the 48-frame shot becomes 120 frames (5 s at 24 fps);
   94 fall between source frames, so frame blending or optical flow is needed and 2 frames sample past the ends of the
   source"; output frame 1002 shows source 1001.4; "looks like a 450° shutter"; two figures (time warp, speed).
-- [ ] Same, speed **200** → 24 frames, 23 source frames never shown, a 90° shutter; speed **0** → refused as a freeze.
+- [ ] Same, speed **200** → 24 frames, 24 source frames never shown (the even ones, 1048 included), a 90° shutter; speed **0** → refused as a freeze.
 - [ ] Same, **Speed ramp** → 94 output frames, speed 25 % to 100 %, 79 between frames, 1 past the source.
 - [ ] **Shot frame range** (defaults) → plate 1001 to 1064 (64 frames), cut 1009 to 1056, offset +908; files
   sh010_comp_v001.1001.exr to sh010_comp_v001.1064.exr **with the underscores intact in Word**; 2000 samples per frame;
@@ -27,7 +27,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Camera match** (defaults, ALEXA Mini LF Open Gate, 35 mm) → 55.33° across, 40.09° high, 65.136° diagonal; Maya
   Camera Aperture 1.4449 × 1.0055 in; crop factor 0.9677. Switch to **Full frame 36 × 24**, 50 mm, 6000 × 4000 → 39.6°
   × 26.99°, aperture 1.4173 × 0.94488 in. **ALEXA 35 3.3K 6:5**, squeeze **2×**, 3328 × 2790 → 60.031° horizontal,
-  Houdini Aperture 40.44 mm with Pixel Aspect Ratio 2.
+  horizontal aperture 40.44 mm (desqueezed), Maya Lens Squeeze Ratio 2.
 - [ ] **Camera projection** (defaults) → pixel (3825, 1448.2), depth 9.417; 23.92 px per frame, a blur streak of 11.96 px
   at 180°; parallax 36.88 px per frame, 885 px over 24 frames; figure from above with near and far lines.
 - [ ] **3D transforms** (defaults) → (1, 0, 0) maps to (1.3536, 2.6124, 2.2929); 69.356° about (0.0391, 0.7728, 0.6335);

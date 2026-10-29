@@ -72,29 +72,37 @@ describe("log curves against colour-science 0.4.7", () => {
   }
 });
 
-describe("log curves against the manufacturers' published code values (the second source)", () => {
+// The second source: numbers READ from the documents named in vfxColour.ts (2026-10-29), as those documents print them.
+describe("log curves against the documents' printed values (the second source)", () => {
   const at = (id: string, x: number): number => logCurve(id)!.encode(x);
-  test("ARRI LogC3 EI 800: 18 % grey 0.391", () => expect(Math.abs(at("logc3", 0.18) - 0.391)).toBeLessThan(5e-4));
-  test("ARRI LogC4: 18 % grey 0.2784, black 95/1023", () => {
-    expect(Math.abs(at("logc4", 0.18) - 0.2784)).toBeLessThan(1e-4);
-    close(at("logc4", 0), 95 / 1023, 1e-12);
+  test("ARRI Usage in VFX: LogC3 EI 800 maps 18 % grey to 0.391 (400/1023)", () => {
+    expect(at("logc3", 0.18).toFixed(3)).toBe("0.391");
+    expect(Math.round(at("logc3", 0.18) * 1023)).toBe(400);
   });
-  test("S-Log3: 0 %, 18 %, 90 % at 95, 420, 598 (10-bit)", () => {
+  test("ARRI LogC4 specification test vectors: 0.0 → 0.0929, 0.18 → 0.2784", () => {
+    expect(at("logc4", 0).toFixed(4)).toBe("0.0929");
+    expect(at("logc4", 0.18).toFixed(4)).toBe("0.2784");
+  });
+  test("RED white paper mapping table: −0.01 → 0, 0 → 0.091551, 0.18 → 0.333333, 1 → 0.493449, 184.322 → 1", () => {
+    for (const [x, y] of [[-0.01, 0], [0, 0.091551], [0.18, 0.333333], [1, 0.493449], [184.322, 1]]) expect(Math.abs(at("log3g10", x) - y)).toBeLessThan(1e-6);
+  });
+  test("Sony technical summary: S-Log3 0 %, 18 %, 90 % at 95, 420, 598 (10-bit)", () => {
     expect(Math.round(at("slog3", 0) * 1023)).toBe(95);
     close(at("slog3", 0.18), 420 / 1023, 1e-12);
     expect(Math.round(at("slog3", 0.9) * 1023)).toBe(598);
   });
-  test("V-Log: 0 %, 18 %, 90 % at 128, 433, 602 (10-bit)", () => {
+  test("Panasonic camera instructions: V-Log 0 %, 18 %, 90 % at 128, 433, 602 (10-bit)", () => {
     expect(Math.round(at("vlog", 0) * 1023)).toBe(128);
     expect(Math.round(at("vlog", 0.18) * 1023)).toBe(433);
     expect(Math.round(at("vlog", 0.9) * 1023)).toBe(602);
   });
-  test("Log3G10: 18 % grey at 1/3", () => expect(Math.abs(at("log3g10", 0.18) - 1 / 3)).toBeLessThan(1e-6));
-  test("ACEScct and ACEScc: 18 % grey 0.4135884", () => {
+  // ACES: the specifications print equations, not test values; their constants are the curve's own (and 18 % grey
+  // follows from them, so this pins the arithmetic, not a second published number).
+  test("ACEScct and ACEScc (S-2016-001, S-2014-003 constants): 18 % grey 0.4135884", () => {
     expect(Math.abs(at("acescct", 0.18) - 0.4135884)).toBeLessThan(1e-7);
     expect(Math.abs(at("acescc", 0.18) - 0.4135884)).toBeLessThan(1e-7);
   });
-  test("Cineon: black 95 at linear 0, white 685 at linear 1, for any points chosen", () => {
+  test("Cineon convention (Lustre, SMPTE Journal): black 95 at linear 0, white 685 at linear 1, for any points chosen", () => {
     close(logCurve("cineon")!.encode(0) * 1023, 95, 1e-12);
     close(logCurve("cineon")!.encode(1) * 1023, 685, 1e-12);
     const c = logCurve("cineon", 64, 700)!;
@@ -245,7 +253,9 @@ describe("time", () => {
     const b = retime({ mode: "constant", interp: "linear", first: 1001, last: 1048, outFirst: 1001, speed: -100, keys: [], fps: 24, shutter: 180 });
     if (!a.ok || !b.ok) throw new Error("retime");
     expect(a.nOut).toBe(24);
-    expect(a.dropped).toHaveLength(23);
+    // Positions 1001, 1003 … 1047: the 24 even frames, 1048 included, are never shown.
+    expect(a.dropped).toHaveLength(24);
+    expect(a.dropped[a.dropped.length - 1]).toBe(1048);
     expect(b.frames[0].src).toBe(1048);
     expect(b.frames[47].src).toBe(1001);
     close(a.effMin as number, 90, 1e-12);

@@ -232,7 +232,7 @@ export interface RetimeResult {
   durationIn: number;
   durationOut: number;
   counts: { on: number; repeat: number; between: number; outside: number };
-  /** Source frames inside the shown range that a nearest-frame retime never shows. */
+  /** Source frames in [first, last] that a nearest-frame retime never shows. */
   dropped: number[];
   speedMin: number;
   speedMax: number;
@@ -356,9 +356,8 @@ export function retime(inp: RetimeInput): RetimeResult | Err {
     if (status !== "outside") shown.add(Math.min(last, Math.max(first, Math.round(p))));
     frames.push({ out: oStart + i, src: p, speed: spd[i], status });
   }
-  const used = [...shown].sort((a, b) => a - b);
   const dropped: number[] = [];
-  if (used.length) for (let f = used[0]; f <= used[used.length - 1]; f++) if (!shown.has(f)) dropped.push(f);
+  for (let f = first; f <= last && dropped.length <= MAX_OUTPUT_FRAMES; f++) if (!shown.has(f)) dropped.push(f);
   const abs = spd.map(Math.abs);
   const nonzero = abs.filter((v) => v > 1e-9);
   const sMin = Math.min(...spd);

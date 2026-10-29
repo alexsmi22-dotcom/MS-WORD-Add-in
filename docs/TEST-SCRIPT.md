@@ -23,7 +23,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Diagnostic study sample size** (defaults) → 692 subjects (138 with the condition); specificity needs 245.
 - [ ] **Risk ratio, odds ratio and NNT** (15/85, 30/70) → RR 0.50 (0.29 to 0.87), OR 0.41 (0.21 to 0.83), risk
   difference −15.0% (−26.1% to −3.4%, Newcombe), NNTB 6.7 (95% CI 3.8 to 29.3), Fisher p = 0.017. Type `20, 80` /
-  `24, 76` → the NNT reads "NNTB 25 (NNTH … to ∞ to NNTB …)" with the sentence explaining ∞; no "Infinity" anywhere.
+  `24, 76` → RR 0.83 (0.49 to 1.41), Fisher p = 0.609, and the NNT reads "NNTB 25.0 (NNTH 13.3 to ∞ to NNTB 6.5)" with the sentence explaining ∞; no "Infinity" anywhere.
 - [ ] **Incidence rate ratio** (41 in 28,010 vs 15 in 19,017 person-years) → 1.46 vs 0.789 per 1,000, IRR 1.86 (exact
   1.01 to 3.61; Wald 1.03 to 3.35), exact p = 0.041.
 - [ ] **Cohen's kappa** (defaults) → observed 73.3%, chance 35.9%, κ = 0.584 (0.414 to 0.754), moderate; linear
@@ -44,8 +44,9 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Creatinine clearance (Cockcroft–Gault)** (65 y, female, 80 kg, 165 cm, 1.1 mg/dL) → 64.4 mL/min on total
   weight; ideal 45.8, adjusted 53.2. Type creatinine `97` → refused: "looks like a value in µmol/L (97 µmol/L = 1.1
   mg/dL)".
-- [ ] **eGFR (CKD-EPI 2021)** (60 y, female, 1.0 mg/dL, cystatin C 1.1) → 66 mL/min/1.73 m² (creatinine alone 64.5),
-  KDIGO G2. Add weight 70 and height 175 → non-indexed GFR in mL/min.
+- [ ] **eGFR (CKD-EPI 2021)** (60 y, female, 1.0 mg/dL, cystatin C 1.1) → first line "eGFR 66 mL/min/1.73 m² … (64 by
+  creatinine alone)", KDIGO G2; the table shows 64.5 and 66.1. Add weight 70 and height 175 → non-indexed GFR 70.6 mL/min
+  (BSA 1.85 m², Du Bois).
 - [ ] **Weight- or BSA-based dose** (15 mg/kg, 70 kg, 50 mg/mL) → 1050 mg, 21 mL; cap 1000 → 1000 mg, said.
 - [ ] **Infusion rate** (5 µg/kg/min, 70 kg, 400 mg in 250 mL) → 13.1 mL/h (21 mg/h); reverse at 13.125 mL/h →
   5 µg/kg/min.

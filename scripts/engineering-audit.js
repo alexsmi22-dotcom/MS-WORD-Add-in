@@ -318,7 +318,9 @@ function run() {
   // 153 as of v2.175.0: plane frame, plate FEA, shelf life, Nernst, Butler–Volmer and Tafel, each drawing.
   // 170 as of v2.187.0: Fresnel, thin-film stack, Jones; tensile, Weibull strength, Scherrer, capability,
   // tolerance stack; root locus, Nyquist, lead/lag, c2d; titration, speciation, solution pH, CV peak, Randles–Ševčík.
-  const FIGURE_BASELINE = 241;
+  // 251 with Astronomy & lunar: the ten astro-* tools each draw (sky dome, Moon disc, month grid, ecliptic strip, …).
+  // Under heavy machine load the headless run can exceed the 600 s spawn timeout; that is load, not a finding.
+  const FIGURE_BASELINE = 251;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");
   console.log(

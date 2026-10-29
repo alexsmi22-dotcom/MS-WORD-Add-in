@@ -362,6 +362,11 @@ function rocCalc(read: Read): StatOutput {
       `${sName} has an AUC of ${fx(fit.auc, 3)} and ${s2Name} ${fx(fit2.auc, 3)} on the same cases: ${tail}.`,
       `AUC ${fx(fit.auc, 3)} against ${fx(fit2.auc, 3)}: ${tail}.`,
     );
+  } else if (fit.auc < 0.5) {
+    lines.push(`The AUC is below 0.5: the score runs the other way from the Direction chosen. Switch the Direction (an AUC of ${fx(1 - fit.auc, 3)} the other way).`);
+    reading = fitReading(
+      `The AUC of ${fx(fit.auc, 3)} is below the 0.5 of chance because ${sName} runs the other way: ${higher ? "lower" : "higher"} scores go with the condition, so switch the Direction (AUC ${fx(1 - fit.auc, 3)}).`,
+    );
   } else {
     reading = fitReading(
       `The score ${sName} separates cases with and without the condition with an AUC of ${fx(fit.auc, 3)} (95% CI ${fxCi(fit.lo, fit.hi, 3)}), ${aucWords(fit.auc)} where 0.5 is chance; the best single cutoff, ${op} ${cutText}, gives sensitivity ${pct(fit.best.sens)} and specificity ${pct(fit.best.spec)}.`,
@@ -520,7 +525,12 @@ function rateCalc(read: Read): StatOutput {
   const per = Number(r("per")) || 1000;
   const rr = rateRatio(a, t1, c, t0);
   if (isErr(rr)) return refuse(rr.error);
-  const rate = (x: number): string => fx(x * per, 2);
+  const rate = (x: number): string => {
+    const v = x * per;
+    if (v === 0) return "0";
+    const d = Math.max(0, Math.min(6, 2 - Math.floor(Math.log10(Math.abs(v)))));
+    return fx(v, d);
+  };
   const perText = `per ${intText(per)} ${unit}`;
   const lines = [
     `Incidence rates: ${intText(a)} events in ${fx(t1, 0)} ${unit} (group 1) = ${rate(rr.r1)} ${perText}; ${intText(c)} in ${fx(t0, 0)} = ${rate(rr.r0)} ${perText}.`,
@@ -801,6 +811,12 @@ function readMetaInput(r: Read): MetaInput | { error: string } {
     return { names, y, v, ratio: m !== "rd", measureName: mName, counts, measure: m, notes };
   }
   const ratio = r("scale") === "ratio";
+  // Five columns of whole numbers is a counts table read with the wrong Input: said, not pooled as nonsense.
+  const allCounts =
+    p.data.names.length === 5 && rows.every((row) => row.slice(1, 5).every((c) => /^\d+$/.test((c ?? "").trim())));
+  if (allCounts) {
+    return { error: "Data: these are five columns of whole numbers (2×2 counts per study), not estimates; choose Input: 2×2 counts, or paste study, estimate and SE (or 95% limits)." };
+  }
   for (const [i, row] of rows.entries()) {
     const est = num(row[1], i, "estimate");
     if (isErr(est)) return est;

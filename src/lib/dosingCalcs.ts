@@ -62,6 +62,12 @@ function finish(lines: EngReportLine[], extra: AnalyzeBlock[], outputs: EngOutpu
 function num(raw: string, label: string, unitHint: string): number | string {
   const t = (raw ?? "").trim().replace(/[−–]/g, "-");
   if (!t) return `${label}: enter a number.`;
+  // No digit at all (a word, "NaN", "Infinity"): not echoed, since a refusal must not print a non-number as a value.
+  if (!/\d/.test(t)) return `${label}: enter a number (letters and symbols on their own are not one).`;
+  if (/^[-+]?(\d+\.?\d*|\.\d+)[eE][-+]?\d+$/.test(t)) {
+    const e = Number(t);
+    return Number.isFinite(e) && e !== 0 ? e : `${label}: that value is out of range.`;
+  }
   if (/[A-Za-zµ%]/.test(t)) return `${label}: type the number only (“${t}” has a unit); choose the unit ${unitHint}.`;
   const v = Number(t.replace(/,(?=\d{3}(\D|$))/g, ""));
   if (!Number.isFinite(v)) return `${label}: “${t}” is not a number.`;

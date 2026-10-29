@@ -444,6 +444,18 @@ describe("meta-analysis: the BCG trials", () => {
     expect(o.text).toMatch(/Left out: A: no events in either arm/);
     expect(o.text).toMatch(/0\.5 added to every cell/);
   });
+  test("pane audit find: the counts default read as effect-and-SE is refused, not pooled", () => {
+    for (const input of ["se", "ci"]) {
+      const o = run("clin-meta", { input });
+      expect(o.ok).toBe(false);
+      expect(o.text).toMatch(/choose Input: 2×2 counts/);
+    }
+  });
+  test("pane audit find: an AUC below 0.5 says to switch the Direction", () => {
+    const o = run("clin-roc", { direction: "lower" });
+    expectOk(o);
+    expect(o.reading).toMatch(/switch the Direction \(AUC 0\.893\)/);
+  });
   test("effect-and-CI input recovers the SE on the log scale", () => {
     const data = "Study\tHR\tLower\tUpper\nA\t0.8\t0.64\t1.0\nB\t0.7\t0.5\t0.98\nC\t0.9\t0.75\t1.08";
     const o = run("clin-meta", { data, input: "ci", scale: "ratio" });

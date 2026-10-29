@@ -145,6 +145,15 @@ describe("adversarial: unit mistakes and implausible values", () => {
     expect(run("med-egfr", { age: "12" }).text).toMatch(/adult equations/);
     expect(run("med-bsa", { w: "700" }).text).toMatch(/if it is in pounds, choose lb/);
   });
+  test("a word typed as a number is refused without echoing it (engineering-audit BADNUMBER)", () => {
+    for (const c of DOSING_CALCS) {
+      const k = c.fields.find((f) => f.kind === "text")!.key;
+      const o = run(c.id, { [k]: "NaN" });
+      expect(o.ok).toBe(false);
+      expect(o.text).not.toMatch(/NaN|Infinity/);
+    }
+    expect(run("med-bsa", { w: "1e999" }).text).toMatch(/out of range/);
+  });
   test("cystatin C in nmol/L is refused", () => {
     expect(run("med-egfr", { cys: "80" }).text).toMatch(/nmol\/L/);
   });

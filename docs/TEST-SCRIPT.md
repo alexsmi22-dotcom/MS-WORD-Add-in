@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.204.0)
+# JurisLab — Manual Test Script (v2.206.0 draft)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 14,000+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,49 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0es. New in v2.206.0 — Clinical research & dosing (Stats 77 → 87, Engineering 241 → 248)
+
+- [ ] **Stats dropdown** shows eleven group headings; **Clinical research & epidemiology** follows Survival.
+- [ ] **Diagnostic test accuracy** (defaults, TP 90 / FP 30 / FN 10 / TN 170) → sensitivity 90.0% (82.6% to 94.5%),
+  specificity 85.0% (79.4% to 89.3%), LR+ 6.00 (4.29 to 8.40), LR− 0.12 (0.07 to 0.21), DOR 51.00; PPV at 10.0%
+  prevalence 40.0% (32.3% to 48.3%); post-test 75.0% after a positive, 5.6% after a negative; the Fagan nomogram.
+  Switch to Clopper–Pearson → sensitivity 82.4% to 95.1%. Type FN = 0 → the text says 0.5 was added for LR+, LR− and
+  DOR only.
+- [ ] **ROC curve and AUC** (Hanley & McNeil CT ratings) → AUC 0.893 (0.833 to 0.953); Youden cutoff ≥ 4, sensitivity
+  86.3%, specificity 77.6%; the every-cutoff table has five rows. Direction "lower" → the reading says to switch it.
+- [ ] **Diagnostic study sample size** (defaults) → 692 subjects (138 with the condition); specificity needs 245.
+- [ ] **Risk ratio, odds ratio and NNT** (15/85, 30/70) → RR 0.50 (0.29 to 0.87), OR 0.41 (0.21 to 0.83), risk
+  difference −15.0% (−26.1% to −3.4%, Newcombe), NNTB 6.7 (95% CI 3.8 to 29.3), Fisher p = 0.017. Type `20, 80` /
+  `24, 76` → the NNT reads "NNTB 25 (NNTH … to ∞ to NNTB …)" with the sentence explaining ∞; no "Infinity" anywhere.
+- [ ] **Incidence rate ratio** (41 in 28,010 vs 15 in 19,017 person-years) → 1.46 vs 0.789 per 1,000, IRR 1.86 (exact
+  1.01 to 3.61; Wald 1.03 to 3.35), exact p = 0.041.
+- [ ] **Cohen's kappa** (defaults) → observed 73.3%, chance 35.9%, κ = 0.584 (0.414 to 0.754), moderate; linear
+  weights → 0.611; quadratic → 0.633.
+- [ ] **Bland–Altman** (PEFR, 1986) → bias −2.12 L/min (−22.05 to 17.81), limits −78.10 to 73.86; choose ± 2 SD →
+  −79.65 to 75.41 (the paper prints −79.7 to 75.5 from the rounded SD 38.8). Slope 0.0287, p = 0.749.
+- [ ] **ICC** (Shrout & Fleiss Table 2) → ICC(1,1) 0.166, (2,1) 0.290 (0.019 to 0.761), (3,1) 0.715, (1,k) 0.443,
+  (2,k) 0.620, (3,k) 0.909.
+- [ ] **Meta-analysis** (BCG, risk ratio) → MH fixed 0.64 (0.59 to 0.69); DL random 0.49 (0.34 to 0.70); I² 92.1%
+  (88.3% to 94.7%); τ² 0.3088; prediction interval 0.14 to 1.77. REML → τ² 0.3132. Input "Effect and SE" with the
+  counts still pasted → refused, telling you to choose 2×2 counts.
+- [ ] **Small-study effects** (BCG) → Egger intercept −2.112 (−5.429 to 1.205), p = 0.189; funnel plot. Paste 9
+  studies → refused, naming the 10-study minimum.
+- [ ] **Engineering ▸ Biomedical ▸ BMI and body surface area** (70 kg, 175 cm) → BMI 22.9 kg/m², BSA 1.84 m²
+  (Mosteller); Du Bois, Haycock, Gehan–George 1.85. Type `1.75` for height → refused: "looks like metres".
+- [ ] **Pharmacokinetics ▸ Ideal, adjusted and lean body weight** (110 kg, 170 cm, male) → IBW 65.9, adjusted 83.6,
+  lean 68.4 kg.
+- [ ] **Creatinine clearance (Cockcroft–Gault)** (65 y, female, 80 kg, 165 cm, 1.1 mg/dL) → 64.4 mL/min on total
+  weight; ideal 45.8, adjusted 53.2. Type creatinine `97` → refused: "looks like a value in µmol/L (97 µmol/L = 1.1
+  mg/dL)".
+- [ ] **eGFR (CKD-EPI 2021)** (60 y, female, 1.0 mg/dL, cystatin C 1.1) → 66 mL/min/1.73 m² (creatinine alone 64.5),
+  KDIGO G2. Add weight 70 and height 175 → non-indexed GFR in mL/min.
+- [ ] **Weight- or BSA-based dose** (15 mg/kg, 70 kg, 50 mg/mL) → 1050 mg, 21 mL; cap 1000 → 1000 mg, said.
+- [ ] **Infusion rate** (5 µg/kg/min, 70 kg, 400 mg in 250 mL) → 13.1 mL/h (21 mg/h); reverse at 13.125 mL/h →
+  5 µg/kg/min.
+- [ ] **Lab unit conversions** → creatinine 1.2 mg/dL = 106.1 µmol/L; glucose `5.5` as mg/dL → refused ("looks like a
+  value already in mmol/L"). Every dosing result ends with the research-and-education Assumes line and a Source line.
+- [ ] Insert one Stats and one Engineering result: text, tables and figure land in Word; Ctrl+Z removes them.
 
 ## 0er. New in v2.204.0 — F3 (Stats 75 → 77)
 

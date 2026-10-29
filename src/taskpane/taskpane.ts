@@ -342,6 +342,7 @@ import { LINEAR_OPTICS_CALCS } from "../lib/linearOpticsCalcs";
 import { SEMICONDUCTOR_CALCS } from "../lib/semiconductorCalcs";
 import { TLINE_CALCS } from "../lib/tlineCalcs";
 import { AI_COMPUTE_CALCS } from "../lib/aiComputeCalcs";
+import { SCENE_CALCS } from "../lib/sceneCalcs";
 import { QUANTUM_LINKS_CALCS } from "../lib/quantumLinksCalcs";
 import { QUANTUM_MECHANICS_CALCS } from "../lib/quantumMechanicsCalcs";
 import { tidyResultSubscripts, tidySubscripts, snapNoise, snapGroup, typesetENotation } from "../lib/subscriptText";
@@ -14337,6 +14338,7 @@ const ENG_GROUP_ORDER = [
   "Audio & acoustics",
   "Video & display",
   "Light & camera",
+  "Scene modelling & pipeline",
   "Electronics",
   "Chips & semiconductors",
   "Aviation & avionics",
@@ -31463,6 +31465,7 @@ const ENG_CALCS: EngCalc[] = [
   ...SEMICONDUCTOR_CALCS,
   ...TLINE_CALCS,
   ...AI_COMPUTE_CALCS,
+  ...SCENE_CALCS,
   ...QUANTUM_LINKS_CALCS,
   ...QUANTUM_MECHANICS_CALCS,
 ];

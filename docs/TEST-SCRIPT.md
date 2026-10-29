@@ -10,6 +10,43 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0es. New in v2.206.0 — Scene modelling & pipeline (Engineering 241 → 252)
+
+- [ ] **Engineering panels:** a **Scene modelling & pipeline** panel sits right after *Light & camera*, with eleven
+  calculators; the Engineering heading counts 252 calculators.
+- [ ] **Bézier curve** (defaults) → opens "At t = 0.5 the cubic Bézier curve is at (2, 1.5) … 5.26837 long … fits a
+  4 × 1.5 box"; curvature −0.592593 (radius 1.6875, centre (2, −0.1875)). The figure shows the green de Casteljau
+  construction converging on the red point, and the orange bounding box. Enter four lines of `1, 1` → "the single
+  point (1, 1) … no tangent, normal or curvature".
+- [ ] **B-spline / NURBS** (defaults: weights `1, √2/2, 1`) → "an exact circular arc: 90° of a circle of radius 1
+  about (0, 0)"; C(0.5) = (0.707107, 0.707107); the largest radial error is 3.3×10⁻¹⁶. Knot insertion at 0.5 gives
+  the control points (1, 0), (1, 0.414214), (0.414214, 1), (0, 1). Weight `0` → refused ("A zero weight puts that
+  control point at infinity …"); knots `0 0 1 0 1 1` → "decreases at position 4".
+- [ ] **Mesh statistics** (default cube) → genus 0, χ = 2, area 24, volume 8; the wireframe is all grey. Delete the
+  `f 5 6 7 8` line → "This mesh is open: 4 boundary edges form 1 hole"; the four rim edges are orange. Change a face
+  to `f 0 1 2` → refused: "OBJ indices are 1-based … looks 0-based".
+- [ ] **Subdivision** (defaults: Catmull–Clark, 6 levels, budget 10,000) → 24,576 quads, 49,152 triangles, about
+  1.31256 MiB; "exceeded at level 5, so level 4 is the deepest that fits"; "Verified … through level 6". The figure
+  is a straight line on the log axis, crossing the red budget line. Switch to Loop → refused ("triangles only … 6
+  faces with 4 or more sides").
+- [ ] **Screen-space size & LOD** (defaults) → 93.5307 px across at 20 m; LOD2 in use; LOD3 beyond 28.0592 m; about
+  2.74827 px per visible triangle, with the quad-shading note.
+- [ ] **Ray intersection** (defaults) → "The ray hits the sphere at distance 4.04606". Set the origin to `0, 0, 0` →
+  "starts INSIDE the sphere … leaving at distance 1". Choose Triangle, with origin `0, 0, 1` and direction
+  `1, 0, 0` → "parallel to the triangle's plane".
+- [ ] **Bounding volumes & BVH split** (defaults) → split cost 2.81386 against 8 for a leaf; the best plane is x = 4.
+- [ ] **Texture memory** (defaults: 2048 × 2048 BC7, mips) → 5.33336 MiB (5,592,432 bytes), 27 bytes over the ×4/3
+  rule; 856.74 texels per metre; 4096 × 4096 for 1024 per metre. The budget list is 46.0001 MiB of 64 MiB. UV
+  fraction `0` → refused (zero area in UV space).
+- [ ] **Render farm** (defaults) → 8.05 h on 20 nodes, inside 24 h; a 12.549× speed-up; 7 nodes for the deadline;
+  cost 103.04. Serial fraction `1` → a 1× speed-up, "does not parallelise at all". Nodes `0` → refused.
+- [ ] **Frame storage** (defaults: 4096 × 2160, 4 channels, half) → 67.5 MiB per frame; the sequence is 189.844 GiB;
+  3.88273 min over 10 Gbps at 70 %. Choose 10-bit DPX with 3 channels → 33.75 MiB per frame.
+- [ ] **Production pipeline** (defaults) → Texturing is the bottleneck at 2 per 8-hour day; lead time 60 working hours
+  by Little's law; WIP limit 8 for 40 h. Arrival interval `2 h` → "the backlog grows", and no lead time is given.
+- [ ] **Insert** Bézier, Mesh and Render farm: the text, the table, the equations (real Word equations) and the figure
+  arrive as one package; Ctrl+Z removes them.
+
 ## 0er. New in v2.204.0 — F3 (Stats 75 → 77)
 
 - [ ] **Stats ▸ Causal inference & panels ▸ GMM: one- or two-step efficient IV (Hansen J)** (defaults) → educ 0.0713 (SE 0.0233), exper 0.02282, Constant 1.0536; Hansen J = 0.099, χ²(1), p = 0.753; first stage partial R² = 0.523; second table 2SLS educ 0.0718 beside GMM 0.0713; figure "2SLS vs GMM".

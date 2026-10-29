@@ -6,6 +6,88 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.206.0] (unreleased)
+
+### Scene modelling & pipeline
+
+Engineering grows from 241 to 252 calculators with a new panel, **Scene modelling & pipeline**, after *Light & camera*
+(26 panels). It covers the geometry behind 3-D scene modelling and the arithmetic of a digital production pipeline.
+Every result opens with a plain-language reading built from its numbers, states what it assumes, and draws a figure.
+The numbers are checked against geomdl 5.4 (NURBS-Python), scipy 1.18, trimesh 5.2 and numpy, or against independent
+re-implementations where no library exists (`scripts/scene-oracle.py`, fixtures `scene-oracle.json`).
+
+- **Bézier curves** (2-D or 3-D, up to degree 20):
+  - C(t) by de Casteljau, with the construction drawn;
+  - tangent, principal normal and curvature from the hodograph;
+  - arc length by adaptive 5-point Gauss–Legendre, refined to 10⁻¹⁰ of the control-polygon length;
+  - the two halves of a split at t, and the curve raised one degree;
+  - the tight bounding box from the roots of C′, isolated in Bernstein form.
+  - All control points equal: the result says the curve is a single point with no tangent or curvature. A cusp says
+    the curvature is not defined there and takes the tangent from the next derivative.
+  - The cubic (0, 0), (1, 2), (3, 2), (4, 0) is 5.26837 long, with κ = −0.592593 at t = 0.5 (agrees with scipy to
+    10⁻¹⁴).
+- **B-spline / NURBS curves:**
+  - The knot vector is checked: non-decreasing, n + p + 1 knots, and an interior knot repeated p + 1 times refused
+    because the curve breaks there. A knot repeated p times is named as C⁰.
+  - Zero and negative weights are refused, with the reason (the denominator can vanish).
+  - The curve is evaluated by de Boor in homogeneous coordinates, and a knot can be inserted by Boehm's algorithm with
+    the curve unchanged.
+  - A single rational quadratic span is tested for an exact circular arc. The default quarter circle (weights 1, √2/2,
+    1) has a largest radial error of 3.3×10⁻¹⁶.
+  - The point, the derivative and the inserted knots, control points and weights agree with geomdl and with scipy on
+    homogeneous coordinates.
+- **Mesh statistics & validity** from pasted OBJ v/f lines (up to 20,000 vertices and faces), or from V, E, F counts:
+  - the Euler characteristic, and the genus of a closed orientable surface;
+  - boundary edges and holes, non-manifold edges, inconsistently wound edges, and orientability by propagation (a
+    Möbius strip reads as non-orientable);
+  - surface area, the signed volume by the divergence theorem (an inside-out mesh is named), centroids and the
+    bounding box;
+  - triangle, quad and n-gon counts, and the triangle count after triangulation.
+  - Indexing: OBJ is 1-based and a negative index counts back from the last vertex. Index 0 is refused as "looks
+    0-based", and a 0-based index base is offered. Out-of-range indices are refused with their line number.
+  - Agrees with trimesh (process=False) on a cube, an offset box, an open box, a mis-wound cube, an inside-out cube,
+    a non-manifold fan, an 8 × 6 torus, a Möbius strip, a pentagonal prism and a cube with an isolated vertex.
+- **Subdivision & polycount budget:**
+  - Catmull–Clark and Loop V, E, F and triangle counts for up to 10 levels, in exact integers.
+  - The counts are checked against a real subdivision of the mesh while it stays under 60,000 faces. A cube goes
+    6 → 24 → 96 quads, and its corner moves to 5/9.
+  - Loop agrees with trimesh's `subdivide_loop` on counts, area and volume.
+  - Memory per level from the bytes per vertex and per index.
+  - The level at which a triangle budget is exceeded.
+- **Screen-space size & LOD:**
+  - projected size from the vertical FOV and the image height;
+  - each LOD's switch distance, f·ε/τ;
+  - pixels per visible triangle, with sub-pixel and small-triangle warnings.
+- **Ray intersection:**
+  - sphere, box by the slab method, and triangle by Möller–Trumbore with barycentrics;
+  - named cases: a ray that starts inside, a tangent ray, a grazing ray, a ray parallel to a slab or to the triangle's
+    plane, a coplanar ray, a back face, a primitive behind the origin.
+  - Agrees with numpy and trimesh barycentrics.
+- **Bounding volumes & BVH split cost:**
+  - an axis-aligned box against a box-centred sphere and Ritter's sphere;
+  - the SAH cost of a given split against a leaf, and the best split found by a full sweep.
+- **Texture memory & texel density:**
+  - uncompressed formats; BC1 to BC7 (8- or 16-byte 4 × 4 blocks); ASTC 4 × 4 to 12 × 12 (16-byte blocks);
+  - the exact mip chain in whole blocks, beside the ×4/3 rule (2048² BC7 with mips is 5,592,432 bytes);
+  - texel density, and the texture size a target density needs;
+  - a budget across a list of textures.
+  - A zero-area UV island is refused by name.
+- **Render farm:**
+  - Amdahl within a node, reusing computation.ts; a serial fraction of 1 gives a speed-up of 1;
+  - whole frames per node, or LPT scheduling of measured frame times;
+  - the nodes a deadline needs, by a full scan;
+  - cost on allocated time, beside busy time.
+  - 0 nodes is refused.
+- **Frame-sequence storage & transfer:**
+  - EXR half and float, 8-, 12- and 16-bit, and 10-bit DPX packed three components to a 32-bit word;
+  - a compression ratio you enter, never guessed;
+  - per frame, per shot and per sequence;
+  - transfer time over a link at a stated efficiency.
+- **Production pipeline:**
+  - stage capacities, the bottleneck and utilisation;
+  - lead time by Little's law, and the WIP limit for a target lead time;
+  - an overloaded pipeline is named, with no steady-state lead time.
+
 ## [2.204.0] — 2026-10-28 — F3: GMM and dynamic panels
 
 Stats grows from 75 to 77 calculators. Both are checked against linearmodels 7.1, pydynpd 0.2.2 and an independent

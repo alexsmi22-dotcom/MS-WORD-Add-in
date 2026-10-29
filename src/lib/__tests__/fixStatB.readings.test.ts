@@ -19,6 +19,7 @@ import { microMarketCalc, microOligopolyCalc, MICRO_MARKET_DEFAULTS, MICRO_OLIGO
 import { eventStudyReading } from "../econE3Calcs";
 import { fitGarch, garchMaxN } from "../ts2";
 import { fitArima } from "../arima";
+import { checkPlan, DPD_MAX_INSTR, DPD_MAX_WORK, type DynPlan } from "../gmm";
 
 type Calc = { id: string; fields?: { key: string; default: string }[]; compute: (r: (k: string) => string) => StatOutput };
 const LIB = [...CAUSAL_STAT_CALCS, ...GMM_STAT_CALCS, ...LIMDEP_STAT_CALCS, ...MICROMACRO_STAT_CALCS, ...TS2_STAT_CALCS, ...TS_CALCULATORS] as unknown as Calc[];
@@ -75,7 +76,7 @@ describe("R6 #3: up-front caps", () => {
     const y = Array.from({ length: 1300 }, (_, i) => Math.sin(i * 1.7) * (1 + (i % 7) / 10));
     const r = fitGarch(y, { vol: "egarch", dist: "t", mean: "constant" });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe("The series has 1,300 returns; EGARCH with Student-t errors takes at most 1,200 in the pane (its search is slower), so use the most recent 1,200, or choose normal errors.");
+    if (!r.ok) expect(r.reason).toBe("The series has 1,300 returns; EGARCH with Student-t errors takes at most 1,200 in the pane (its search is slower), so use the most recent 1,200, or choose GARCH or GJR-GARCH with normal errors.");
   });
   test("ineq-gini takes at most 50,000 rows", () => {
     expect(INEQ_MAX_ROWS).toBe(50000);
@@ -212,6 +213,41 @@ describe("R5 MAJOR 9 / R6 p ≈ .05: decided on the printed p", () => {
     const r = eventStudyReading(3, "−1 to +1", 0.012, 1.96, 0.0500001, (v) => (100 * v).toFixed(2));
     expect(r).toContain("right at the conventional 5% threshold");
     expect(readingProblems(r)).toEqual([]);
+  });
+});
+
+describe("R6 #4: ts-johansen full rank is not 'K long-run relations'", () => {
+  test("three independent white-noise series", () => {
+    let s = 12345;
+    const g = (): number => {
+      s = (s * 16807) % 2147483647;
+      const u1 = s / 2147483647;
+      s = (s * 16807) % 2147483647;
+      const u2 = s / 2147483647;
+      return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    };
+    const data = ["t\tA\tB\tC", ...Array.from({ length: 200 }, (_, i) => `${i + 1}\t${g().toFixed(4)}\t${g().toFixed(4)}\t${g().toFixed(4)}`)].join("\n");
+    const r = ok(run("ts-johansen", { data, columns: "A,B,C", kdiff: "1", det: "0" }));
+    expect(r).toMatch(/full rank/);
+    expect(r).not.toMatch(/3 long-run relations/);
+  });
+});
+
+describe("R5 minor: panel-dyn-gmm refusals do not tell a collapsed run to choose collapse", () => {
+  test("checkPlan over the instrument cap, collapsed and not", () => {
+    const plan = { instr: DPD_MAX_INSTR + 1, work: 0, groups: 10, rows: 10 } as unknown as DynPlan;
+    expect(() => checkPlan(plan, true)).toThrow(/Set a last lag for the GMM-style instruments\.$/);
+    expect(() => checkPlan(plan, true)).not.toThrow(/Choose “collapse”/);
+    expect(() => checkPlan(plan, false)).toThrow(/Choose “collapse”/);
+    const heavy = { instr: 10, work: DPD_MAX_WORK + 1, groups: 10, rows: 10 } as unknown as DynPlan;
+    expect(() => checkPlan(heavy, true)).not.toThrow(/Choose “collapse”/);
+  });
+});
+
+describe("R5 minor: causal-pscore keeps the unconfoundedness caveat on every branch", () => {
+  test.each([["default replace=no", { replace: "no" }], ["ps-noreplace-short", null]] as const)("%s", (_l, over) => {
+    const o = over ? run("causal-pscore", over) : repro("ps-noreplace-short");
+    expect(ok(o)).toMatch(/causal only if the covariates capture how units were chosen/);
   });
 });
 

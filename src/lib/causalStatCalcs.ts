@@ -1678,7 +1678,7 @@ export function pscoreCalc(read: Read): StatOutput {
       "No standard error is reported (see below).";
     lines = [header, summary];
     readEst = m.est;
-    readTail = " (by matching, which gives no standard error, so its precision is unknown)";
+    readTail = " (matching gives no standard error, so its precision is unknown)";
     // R5 MAJOR 7: when units go unmatched, the estimate covers only the matched ones.
     const nTreated = T.reduce((a, v) => a + (v === 1 ? 1 : 0), 0);
     if (estimand === "att" && m.nMatchedT < nTreated) whoMatched = `among the ${intText(m.nMatchedT)} matched treated units (not all the treated)`;
@@ -1828,14 +1828,18 @@ export function pscoreCalc(read: Read): StatOutput {
     worstAfter <= 0.1
       ? ` The groups are well balanced after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}), but it is causal only if the covariates capture how units were chosen.`
       : ` The groups still differ after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}, above 0.1), so the estimate may be biased; it is causal only if the covariates capture how units were chosen.`;
-  // When the caveat makes the reading too long, the imbalance warning alone (it already says the estimate may be biased).
-  const balShort = worstAfter <= 0.1 ? bal : ` The groups still differ after adjustment (largest standardized difference ${fmtFixed(worstAfter, 3)}, above 0.1), so the estimate may be biased.`;
+  // The unconfoundedness caveat always stays (R5 minor): when the full sentence is too long, a shorter one that keeps it.
+  const balShort =
+    worstAfter <= 0.1
+      ? ` The groups are balanced (largest standardized difference ${fmtFixed(worstAfter, 3)}); causal only if the covariates capture how units were chosen.`
+      : ` The groups still differ (largest standardized difference ${fmtFixed(worstAfter, 3)}), so it may be biased, and it is causal only if the covariates capture how units were chosen.`;
+  const caveatOnly = " It is causal only if the covariates capture how units were chosen.";
   // "The estimated effect of training on earnings among the treated is 2.500" (the table's own format), and the same
   // without the column names for when long names overrun the length limit.
   const who = whoMatched || (estimand === "att" ? "among the treated" : "averaged over everyone");
   const lead = `The estimated effect of ${tName} on ${cols.depName} ${who} is ${fmtFixed(readEst, 3)}${readTail}`;
   const leadBare = `The estimated effect of the treatment ${who} is ${fmtFixed(readEst, 3)}${readTail}`;
-  const reading = fitReading(`${lead}.${bal}`, `${lead}.${balShort}`, `${leadBare}.${bal}`, `${leadBare}.${balShort}`, `${lead}.`, `${leadBare}.`);
+  const reading = fitReading(`${lead}.${bal}`, `${lead}.${balShort}`, `${leadBare}.${bal}`, `${leadBare}.${balShort}`, `${lead}.${caveatOnly}`, `${leadBare}.${caveatOnly}`);
   return { text: lines.join("\n"), reading, tables, svg };
 }
 

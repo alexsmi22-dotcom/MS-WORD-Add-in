@@ -156,9 +156,9 @@ export const CASES: Case[] = [
   { id: "causal-synth", label: "rank 1, p floor", over: {}, expect: /largest of the 13 units.*cannot go below 0\.077/ },
   { id: "causal-synth", label: "placebos off", over: { placebo: "no" }, expect: /no placebo comparison/ },
   { id: "causal-synth", label: "early start", over: { start: "2000" }, expect: /ranks only 3 of 13 against placebo units \(permutation p = 0\.231\), so the gap could be chance/ },
-  { id: "causal-pscore", label: "matching ATT", over: {}, expect: /among the treated is 2\.500 \(by matching, which gives no standard error.*well balanced after adjustment \(largest standardized difference 0\.082\)/ },
+  { id: "causal-pscore", label: "matching ATT", over: {}, expect: /among the treated is 2\.500 \(matching gives no standard error.*well balanced after adjustment \(largest standardized difference 0\.082\)/ },
   { id: "causal-pscore", label: "IPW ATE", over: { method: "ipw", estimand: "ate" }, expect: /averaged over everyone is .*95% interval/ },
-  { id: "causal-pscore", label: "matching without replacement: imbalance", over: { replace: "no" }, expect: /is 2\.624 .*The groups still differ after adjustment \(largest standardized difference 0\.143, above 0\.1\), so the estimate may be biased/ },
+  { id: "causal-pscore", label: "matching without replacement: imbalance", over: { replace: "no" }, expect: /is 2\.624 .*The groups still differ \(largest standardized difference 0\.143\), so it may be biased, and it is causal only if the covariates capture how units were chosen\./ },
   { id: "causal-pscore", label: "IPW Horvitz–Thompson ATE: not significant", over: { method: "ipw", weights: "ht", estimand: "ate" }, expect: /is 1\.385 \(95% interval \[−0\.250; 3\.020\], p = 0\.097\), not clearly different from zero/ },
   { id: "causal-pscore", label: "one covariate", over: { covariates: "age" }, expect: /among the treated is 2\.803 .*well balanced after adjustment \(largest standardized difference 0\.000\)/ },
   // ---- GMM

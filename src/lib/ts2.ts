@@ -1254,7 +1254,7 @@ export function fitGarch(yIn: ArrayLike<number>, spec: GarchSpec): GarchFit | Re
     const what = `${spec.vol === "egarch" ? "EGARCH" : spec.vol === "gjr" ? "GJR-GARCH" : "GARCH"} with ${spec.dist === "t" ? "Student-t" : "normal"} errors`;
     return {
       ok: false,
-      reason: `The series has ${n.toLocaleString("en-US")} returns; ${what} takes at most ${capN.toLocaleString("en-US")} in the pane (its search is slower), so use the most recent ${capN.toLocaleString("en-US")}${spec.dist === "t" || spec.vol === "egarch" ? `, or choose ${spec.dist === "t" ? "normal errors" : "GARCH or GJR-GARCH"}` : ""}.`,
+      reason: `The series has ${n.toLocaleString("en-US")} returns; ${what} takes at most ${capN.toLocaleString("en-US")} in the pane (its search is slower), so use the most recent ${capN.toLocaleString("en-US")}${spec.dist === "t" || spec.vol === "egarch" ? `, or choose ${spec.vol === "egarch" ? "GARCH or GJR-GARCH with normal errors" : "normal errors"}` : ""}.`,
     };
   }
   let nonzero = false;

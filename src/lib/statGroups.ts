@@ -11,6 +11,7 @@ export const STAT_GROUP_ORDER = [
   "Regression",
   "Limited dependent & count models",
   "Survival",
+  "Clinical research & epidemiology",
   "Causal inference & panels",
   "Time series",
   "Event studies & index numbers",
@@ -80,6 +81,7 @@ const BY_ID: Record<string, StatGroup> = {
 /** By id prefix, for the families F2 adds (ts-*, …); an explicit id above wins. */
 const BY_PREFIX: [string, StatGroup][] = [
   ["ts-", "Time series"],
+  ["clin-", "Clinical research & epidemiology"],
   ["ld-", "Limited dependent & count models"],
   ["limdep-", "Limited dependent & count models"],
   ["causal-", "Causal inference & panels"],

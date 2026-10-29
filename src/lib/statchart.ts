@@ -639,12 +639,13 @@ export interface ForestRow {
  */
 export function forestPlotSvg(
   rows: ForestRow[],
-  opts: { title?: string; xlabel?: string; zero?: number; w?: number; log?: boolean },
+  opts: { title?: string; xlabel?: string; zero?: number; w?: number; log?: boolean; maxRows?: number },
 ): string {
   if (opts.log) return forestPlotLogSvg(rows, opts);
   const W = canvasOf(opts.w, undefined, FOREST_CHART_SIZE).W;
   const bw = currentFigCtx()?.bw === true;
-  const CAP = 14;
+  // maxRows (v2.206.0, the meta-analysis forest: every study plus the pooled rows): default 14, at most 40.
+  const CAP = Math.min(40, Math.max(1, opts.maxRows ?? 14));
   const shown = rows.slice(0, CAP);
   const clipped = rows.length - shown.length;
   const ROW_H = 20;
@@ -809,11 +810,11 @@ export function forestLogAxis(lo: number, hi: number): ForestLogAxis | { error: 
 /** forestPlotSvg's log-axis path (see `log` there). */
 function forestPlotLogSvg(
   rows: ForestRow[],
-  opts: { title?: string; xlabel?: string; zero?: number; w?: number },
+  opts: { title?: string; xlabel?: string; zero?: number; w?: number; maxRows?: number },
 ): string {
   const W = canvasOf(opts.w, undefined, FOREST_CHART_SIZE).W;
   const bw = currentFigCtx()?.bw === true;
-  const CAP = 14;
+  const CAP = Math.min(40, Math.max(1, opts.maxRows ?? 14));
   const shown = rows.slice(0, CAP);
   const clipped = rows.length - shown.length;
   const ROW_H = 20;
@@ -867,7 +868,10 @@ function forestPlotLogSvg(
       labelled = labelled.filter((_, i) => i % 2 === parity);
     }
   }
-  const xText = `${opts.xlabel ?? "ratio"} (log scale)`;
+  // " (log scale)" is appended only when the caller's title does not already say it (v2.206.0 review: the clinical
+  // forests printed "(log scale) (log scale)"). No earlier caller's title says it, so their figures are unchanged.
+  const xBase = opts.xlabel ?? "ratio";
+  const xText = /log scale/i.test(xBase) ? xBase : `${xBase} (log scale)`;
   const xLines = titleLinesFor(xText, 2 * Math.min(ML + pw / 2, W - ML - pw / 2) - 4, 10);
   H += 13 * Math.max(0, xLines.length - 1);
 

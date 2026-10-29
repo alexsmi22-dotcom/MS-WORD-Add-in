@@ -77,6 +77,10 @@ const EXCEPTIONS: Record<string, string> = {
   "panel-dyn-gmm thesis/single": "the estimator names do not fit side by side in a 75 mm column at 8 pt",
   "panel-dyn-gmm uspto/single": "the estimator names do not fit side by side at USPTO lettering",
   "panel-dyn-gmm uspto/double": "the estimator names do not fit side by side at USPTO lettering",
+  // clin-meta (v2.206.0): the default forest plot draws all 13 BCG trials and three pooled rows; at USPTO lettering
+  // (3.5 mm) sixteen rows need about 274 mm, above the 244 mm sight. Fewer studies fit; every journal style takes it.
+  "clin-meta uspto/single": "sixteen forest-plot rows at USPTO lettering are taller than the 244 mm sight",
+  "clin-meta uspto/double": "sixteen forest-plot rows at USPTO lettering are taller than the 244 mm sight",
   // rmanova: four condition names under the profile plot ("Stick insect", "Kangaroo te…") at 8 pt in 75 mm or at USPTO
   // lettering (round 1 accepted it with the names run together; thinning would name only two of the four).
   "rmanova thesis/single": "four condition names do not fit under the profile plot in a 75 mm column at 8 pt",

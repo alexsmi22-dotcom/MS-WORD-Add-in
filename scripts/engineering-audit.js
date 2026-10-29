@@ -324,6 +324,8 @@ function run() {
   // 252 as of v2.206.0: eleven VFX & compositing tools (vfx-retime … vfx-collision, the new "VFX & compositing" group),
   // every one drawing from its shipped defaults.
   // 248 on branch lighting: the seven Lighting & rendering calculators, each drawing from its defaults.
+  // 248 as of v2.206.0: seven dosing tools (BMI/BSA, dosing weights, Cockcroft–Gault, CKD-EPI eGFR, dose, infusion,
+  // lab units), each drawing from its shipped defaults.
   const FIGURE_BASELINE = 249;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");

@@ -8,6 +8,82 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 
 ## [2.206.0] (unreleased)
 
+### Clinical research & dosing
+
+Stats grows from 77 to 87 calculators under a new eleventh heading, **Clinical research & epidemiology**; Engineering
+grows from 241 to 248. These are research and teaching tools for patent attorneys, inventors and students (a
+diagnostic patent claims "a sensitivity of at least 90%"). There are no bedside decision scores. Every number is
+checked against statsmodels 0.15, scipy, scikit-learn 1.9.1 or pingouin 0.7.0, or against an independent Python
+re-implementation where no library computes it (scripts/clinical-oracle.py). The published worked examples are
+reproduced: Hanley & McNeil's CT ratings (AUC 0.893), Bland & Altman's 1986 PEFR data, Altman's 1998 NNT intervals,
+Shrout & Fleiss's 1979 ICC table, and the metafor BCG meta-analysis.
+
+#### Added: Stats (77 → 87)
+- **Diagnostic test accuracy:** from a 2×2 table, or from sensitivity, specificity and prevalence.
+  - Sensitivity, specificity, PPV, NPV and accuracy, with Wilson or Clopper–Pearson intervals (Wilson is the default).
+  - LR+ and LR− by the log method; the diagnostic odds ratio; Youden's J.
+  - PPV and NPV at another prevalence, with the Mercaldo logit interval.
+  - Pre-test to post-test probability, drawn as a **Fagan nomogram**.
+  - A zero cell adds 0.5 (Haldane–Anscombe) to the ratio measures only, and the result says so. A prevalence of 0% or
+    100% is refused in words.
+- **ROC curve and AUC:** the DeLong interval; the Youden-optimal cutoff with its sensitivity and specificity; DeLong's
+  paired test for two scores on the same cases.
+  - Ties count one half.
+  - All-identical scores are refused.
+  - An AUC below 0.5 says to switch the direction.
+- **Diagnostic study sample size** (Buderer 1996).
+- **Risk ratio, odds ratio and NNT** for a cohort, trial or case-control 2×2.
+  - Interval methods: Katz log, Woolf, and Newcombe hybrid score or Wald for the risk difference. ARR and RRR are
+    reported too.
+  - NNTB or NNTH in Altman's notation. An interval that crosses no effect reads "NNTH 20 to ∞ to NNTB 4", explained in
+    words.
+  - Pearson χ² and Fisher's exact p come from the Stats chi-square tool's own engine.
+  - A forest figure on a log axis.
+- **Incidence-rate ratio** for person-time: an exact interval (conditional binomial) and a Wald interval, with the
+  exact test and the rate difference.
+- **Cohen's kappa**, unweighted or with linear or quadratic weights, using the Fleiss–Cohen–Everitt standard errors.
+  When both raters use only one category, the result is refused.
+- **Bland–Altman:** the bias and the 95% limits of agreement, each with its interval (± 1.96 SD, or ± 2 SD as in the
+  1986 paper), a proportional-bias regression, and the Bland–Altman plot.
+- **ICC:** all six Shrout–Fleiss / McGraw–Wong forms with F-method intervals and F tests, plus a profile figure.
+- **Meta-analysis:** input as 2×2 counts (OR, RR or RD), as effect and SE, or as effect and 95% CI.
+  - Inverse-variance or Mantel–Haenszel fixed effect.
+  - DerSimonian–Laird or REML random effects.
+  - Q, I² with the Higgins–Thompson interval, τ², and the prediction interval.
+  - A forest plot.
+  - Single-zero studies are corrected, double-zero studies are left out by name, and one study is refused.
+- **Small-study effects:** Egger's test with a funnel plot. Fewer than 10 studies are refused by name (Sterne et al.
+  2011).
+- The shared forest plot builder (statchart.forestPlotSvg) takes an optional `maxRows`, so the meta-analysis forest
+  can show every study (up to 30) and the pooled rows in one panel. Other callers are unchanged.
+
+#### Added: Engineering (241 → 248)
+- **Biomedical:**
+  - BMI, and body surface area by Mosteller, Du Bois, Haycock and Gehan–George side by side.
+  - Lab unit conversions (creatinine, glucose, cholesterol, triglycerides, urea nitrogen) with molar-mass factors
+    cited.
+- **Pharmacokinetics:**
+  - Ideal (Devine), adjusted (0.4) and lean (Janmahasatian) body weight.
+  - Cockcroft–Gault on the chosen weight, with all three weights shown.
+  - CKD-EPI 2021 race-free eGFR, from creatinine and from creatinine with cystatin C, plus the optional non-indexed
+    mL/min.
+  - Weight- or BSA-based dose, with a cap and a draw volume.
+  - Infusion rate, in both directions between µg/kg/min (and three other dose-rate units) and mL/h.
+- Each dosing tool:
+  - cites its source paper;
+  - ends with "Assumes: for research and education; not a substitute for clinical judgement or institutional dosing
+    protocols."
+- Each dosing tool refuses unit mistakes by name:
+  - creatinine in µmol/L typed into mg/dL, or the reverse;
+  - height in metres typed into cm;
+  - a unit typed after the number;
+  - cystatin C in nmol/L;
+  - an SI value typed as conventional;
+  - patients under 18 for the adult equations.
+
+
+## [2.206.0] (unreleased)
+
 ### Spaceflight
 A new Engineering group, **Spaceflight & missions**, right after Trajectory & orbits: ten calculators, so Engineering
 grows from 241 to 251 calculators in 26 disciplines. Every number is checked against an independent Python oracle

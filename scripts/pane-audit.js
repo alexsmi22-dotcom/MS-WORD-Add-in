@@ -72,7 +72,9 @@ const BASELINES = {
   // and the money multiplier is a ledger; econ-regtable and econ-logit are tables as before.
   // v2.205.0 ("fully inclusive"): 77 of 77 — logit and the regression table draw coefficient plots, Tobit, Heckman and
   // mlogit forest plots, the money multiplier its deposit-expansion rounds. Every Statistics calculator draws.
-  stats: { label: "Statistics", figures: 77, total: 77 },
+  // v2.206.0: 87 of 87 — the ten clinical-research calculators (Fagan nomogram, ROC, Buderer curves, ratio forests,
+  // kappa bars, Bland–Altman, ICC profile, meta-analysis forest, funnel plot) each draw from their defaults.
+  stats: { label: "Statistics", figures: 87, total: 87 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it
@@ -102,7 +104,7 @@ const BASELINES = {
 
 // How many Finance and Statistics calculators open with a plain-language reading (lib/calcReading.ts) on their
 // defaults. A floor, raised as readings land; a reading lost is a finding.
-const READING_BASELINES = { stats: 77, finance: 79 };
+const READING_BASELINES = { stats: 87, finance: 79 };
 
 function findBrowser() {
   const candidates = [

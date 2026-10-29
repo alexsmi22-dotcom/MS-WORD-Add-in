@@ -127,6 +127,10 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // two figures for five of them, and eleven builders at their edges).
 // 1024 as of v2.206.0: fifty-nine Spaceflight & missions figures (each calculator at its defaults and its layout
 // variants, then the spaceflightCharts.ts builders at their edges).
+// 1016 as of v2.206.0: the measured corpus before this release (965) plus 32 clinical-research figures
+// (Fagan, ROC, Buderer, ratio forests, kappa bars, Bland–Altman, ICC profile, meta forest and funnel, at defaults and
+// stress cases) and 19 dosing figures (BSA and weight bars, Cockcroft–Gault bars, the CKD-EPI curve, dose, infusion and
+// lab-conversion lines).
 const CORPUS_FLOOR = 1016;
 
 // --- The allowance ratchet ----------------------------------------------------

@@ -229,6 +229,7 @@ import { CAUSAL_STAT_CALCS } from "../lib/causalStatCalcs";
 import { LIMDEP_STAT_CALCS } from "../lib/limdepStatCalcs";
 import { MICROMACRO_STAT_CALCS } from "../lib/micromacroStatCalcs";
 import { GMM_STAT_CALCS } from "../lib/gmmStatCalcs";
+import { CLINICAL_STAT_CALCS } from "../lib/clinicalStatCalcs";
 import { CBA_CALCS } from "../lib/cbaCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
@@ -337,6 +338,7 @@ import { KALMAN_CALCS } from "../lib/kalmanCalcs";
 import { QUANTUM_GATES_CALCS } from "../lib/quantumGatesCalcs";
 import { QUANTUM_DIRAC_CALCS } from "../lib/quantumDiracCalcs";
 import { LASER_CALCS } from "../lib/laserCalcs";
+import { DOSING_CALCS } from "../lib/dosingCalcs";
 import { LINK_BUDGET_CALCS } from "../lib/linkBudgetCalcs";
 import { LINEAR_OPTICS_CALCS } from "../lib/linearOpticsCalcs";
 import { SEMICONDUCTOR_CALCS } from "../lib/semiconductorCalcs";
@@ -12471,6 +12473,7 @@ const STAT_CALCS: StatCalc[] = [
   ...LIMDEP_STAT_CALCS,
   ...MICROMACRO_STAT_CALCS,
   ...GMM_STAT_CALCS,
+  ...CLINICAL_STAT_CALCS,
 ];
 
 function populateStatsCalcs(): void {
@@ -31487,6 +31490,8 @@ const ENG_CALCS: EngCalc[] = [
   ...VFX_CALCS,
   ...LIGHTING_CALCS,
   ...SPACEFLIGHT_CALCS,
+  // v2.206.0: body measurements, renal function estimates, dose and infusion arithmetic, lab unit conversions
+  ...DOSING_CALCS,
 ];
 
 // Underscore subscripts in every tool's prose, tables, captions and output names typeset (subscriptText.ts); the math

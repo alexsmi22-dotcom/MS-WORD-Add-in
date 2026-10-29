@@ -341,6 +341,10 @@ import { cipParitySvg, uipPathSvg, pppPathSvg, putCallParitySvg, stepBarsSvg, na
 import { logitCoefFigureSvg, regTableFigureSvg } from "../src/lib/statPaneFigures";
 import { coefForestSvg, depositExpansionSvg } from "../src/lib/statLibFigures";
 import { finCurrencyCalc, FIN_CURRENCY_DEFAULTS } from "../src/lib/econE5aCalcs";
+import { CLINICAL_STAT_CALCS } from "../src/lib/clinicalStatCalcs";
+import { DOSING_CALCS } from "../src/lib/dosingCalcs";
+import { ANALYTES } from "../src/lib/dosing";
+import { faganSvg, rocSvg, metaForestSvg, funnelSvg, blandAltmanSvg, iccProfileSvg, budererSvg, ratioForestSvg } from "../src/lib/clinicalFigures";
 import { econLogitCalc, econRegTableCalc, LOGIT_DEFAULT, LOGIT_SPEC_DEFAULT, LONGLEY_DEFAULT, ECON_SPECS_DEFAULT } from "../src/lib/econCalcs";
 // --- VFX & compositing ---
 import { VFX_CALCS } from "../src/lib/vfxCalcs";
@@ -4369,4 +4373,65 @@ rotator 15` }, "jones elliptical");
   figures.push(["vfx bounceSvg elastic", bounceSvg(1, 1, 1, "m")]);
 }
 // --- end VFX & compositing ---
+// --- Clinical research & epidemiology (v2.206.0: clinicalStatCalcs.ts / clinicalFigures.ts): Fagan nomogram, ROC,
+// Buderer curves, ratio forests, kappa bars, Bland–Altman, ICC profile, meta-analysis forest and funnel ---------------
+{
+  const cl = (id: string, over: Record<string, string>, name: string) => {
+    const c = CLINICAL_STAT_CALCS.find((x) => x.id === id);
+    if (!c) throw new Error(`corpus: clinical calc ${id} missing`);
+    const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+    Object.assign(vals, over);
+    const out = c.compute((k) => vals[k] ?? "");
+    if (out.ok === false || !out.svg) throw new Error(`corpus: clinical ${name} did not draw: ${out.text.slice(0, 120)}`);
+    figures.push([`clinical ${name}`, out.svg]);
+  };
+  for (const c of CLINICAL_STAT_CALCS) cl(c.id, {}, `${c.id} default`);
+  cl("clin-diag", { mode: "rates", spec: "100%" }, "diag specificity 100% (LR+ off the scale)");
+  cl("clin-diag", { pretest: "0.05%" }, "diag pre-test below the scale");
+  cl("clin-diag", { tp: "50", fp: "10", fn: "0", tn: "40" }, "diag FN = 0 (Haldane)");
+  cl("clin-2x2", { design: "casecontrol" }, "2x2 case-control");
+  cl("clin-2x2", { table: "0, 20\n5, 15" }, "2x2 zero cell");
+  cl("clin-rate", { e1: "0" }, "rate no events in group 1 (rate difference)");
+  cl("clin-kappa", { table: "11, 3, 1, 0\n2, 13, 4, 1\n1, 3, 15, 4\n0, 1, 2, 9", weight: "quadratic", categories: "" }, "kappa 4 categories quadratic");
+  cl("clin-icc", { data: "Target\tVery long rater name one\tVery long rater name two\tThird rater\nA\t1\t2\t2\nB\t3\t4\t4\nC\t5\t5\t6\nD\t2\t3\t2" }, "icc long rater names");
+  cl("clin-meta", { measure: "or", fixed: "iv", tau: "reml" }, "meta odds ratio IV REML");
+  cl("clin-meta", { measure: "rd" }, "meta risk difference (linear axis)");
+  cl("clin-meta", { input: "se", scale: "diff", data: "Study\tEstimate\tSE\nA\t0.10\t0.04\nB\t0.12\t0.05\nC\t0.11\t0.03" }, "meta tau2 = 0, three studies");
+  const many = ["Study\tlogHR\tSE", ...Array.from({ length: 40 }, (_, i) => `A study with a long name ${i + 1}\t${(((i * 37) % 17) - 8) / 20}\t${0.08 + ((i * 13) % 7) / 40}`)].join("\n");
+  cl("clin-meta", { input: "se", scale: "diff", data: many }, "meta 40 studies, long names (first 30 drawn)");
+  cl("clin-egger", { input: "se", scale: "diff", data: many }, "egger 40 studies");
+  const pairs = ["y\ta\tb", ...Array.from({ length: 80 }, (_, i) => `${i % 2}\t${((i * 29) % 23) / 2 + (i % 2) * 4}\t${((i * 11) % 19) / 3 + (i % 2)}`)].join("\n");
+  cl("clin-roc", { data: pairs, outcome: "y", score: "a", score2: "b" }, "roc two scores (DeLong paired)");
+  figures.push(["clinical faganSvg extreme LRs", faganSvg(0.5, [{ label: "LR 5000", lr: 5000, post: 0.9998 }, { label: "LR 0.0001", lr: 0.0001, post: 0.0001 }])]);
+  figures.push(["clinical rocSvg diagonal only", rocSvg([{ label: "Score", pts: [{ fpr: 0, tpr: 0 }, { fpr: 0.5, tpr: 0.5 }, { fpr: 1, tpr: 1 }] }], null)]);
+  figures.push(["clinical metaForestSvg two studies", metaForestSvg([{ label: "A", estimate: 0.5, low: 0.2, high: 1.2 }, { label: "B", estimate: 2, low: 1.1, high: 3.9 }], [{ label: "Fixed (IV)", estimate: 1, low: 0.6, high: 1.7 }], { xlabel: "Odds ratio (log scale)", log: true })]);
+  figures.push(["clinical funnelSvg difference scale", funnelSvg([0.1, 0.3, -0.2, 0.05, 0.4, 0.2, 0.15, -0.1, 0.25, 0.0], [0.1, 0.2, 0.3, 0.05, 0.4, 0.15, 0.12, 0.25, 0.3, 0.08], 0.1, false, "Mean difference")]);
+  figures.push(["clinical blandAltmanSvg tiny scale", blandAltmanSvg([0.0011, 0.0012, 0.0013], [0.00001, -0.00002, 0.00003], 0.00000667, -0.00005, 0.00006, (v) => v.toFixed(6).replace("-", "−"), "mg/L")]);
+  figures.push(["clinical iccProfileSvg 30 targets", iccProfileSvg(Array.from({ length: 30 }, (_, i) => [i % 7, (i * 3) % 7, (i * 5) % 7]), ["A", "B", "C"])]);
+  figures.push(["clinical budererSvg", budererSvg([{ x: 10, y: 1000 }, { x: 50, y: 200 }], [{ x: 10, y: 100 }, { x: 50, y: 180 }], { x: 20, y: 500 })]);
+  figures.push(["clinical ratioForestSvg linear", ratioForestSvg([{ label: "Rate difference", estimate: 0.67, low: 0.07, high: 1.28 }], { title: "Rate difference (95% CI)", xlabel: "Rate difference per 1,000 person-years", log: false })]);
+}
+// --- Dosing and body measurements (v2.206.0: dosingCalcs.ts, Engineering): BSA and weight bars, Cockcroft–Gault bars,
+// the CKD-EPI curve, dose and infusion lines, lab conversion lines ----------------------------------------------------
+{
+  const variants: Record<string, Record<string, string>[]> = {
+    "med-bsa": [{}, { w: "3.5", h: "50" }, { w: "250", h: "210" }],
+    "med-weights": [{}, { sex: "female", w: "45", h: "150" }],
+    "med-crcl": [{}, { basis: "adjusted", scr: "8.5", age: "90" }],
+    "med-egfr": [{}, { cys: "", scr: "0.4", age: "19", sex: "male" }, { scr: "12", cys: "6", w: "80", h: "180" }],
+    "med-dose": [{}, { basis: "bsa", per: "75", cap: "120", conc: "" }],
+    "med-infusion": [{}, { dir: "torate", ru: "mgh", mlh: "0.05" }],
+    "med-labunits": ANALYTES.map((a) => ({ analyte: a.id, v: String(a.reference[1]) })),
+  };
+  for (const c of DOSING_CALCS) {
+    (variants[c.id] ?? [{}]).forEach((over, vi) => {
+      const vals: Record<string, string> = Object.fromEntries(c.fields.map((f) => [f.key, f.default]));
+      Object.assign(vals, over);
+      const out = c.compute((k) => vals[k] ?? "");
+      const svgs = (out.blocks ?? []).filter((b) => b.kind === "plot").map((b) => (b as { svg: string }).svg);
+      if (out.ok === false || !svgs.length) throw new Error(`corpus: dosing ${c.id} v${vi} did not draw: ${out.text}`);
+      svgs.forEach((s, i) => figures.push([`dosing ${c.id} v${vi} ${Object.keys(over).join("+") || "default"} #${i + 1}`, s]));
+    });
+  }
+}
 export { figures };

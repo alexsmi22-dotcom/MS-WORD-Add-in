@@ -197,6 +197,9 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   counts still pasted → refused, telling you to choose 2×2 counts.
 - [ ] **Small-study effects** (BCG) → Egger intercept −2.112 (−5.429 to 1.205), p = 0.189; funnel plot. Paste 9
   studies → refused, naming the 10-study minimum.
+- [ ] **Meta-analysis** (BCG) with Figure style ▸ Elsevier, single column, then Thesis, single column → the forest is
+  redrawn with long study names on two or three lines ("Comstock & Webster" / "1969"), none ending in "…", and no
+  name overlapping the next row.
 - [ ] **Engineering ▸ Biomedical ▸ BMI and body surface area** (70 kg, 175 cm) → BMI 22.9 kg/m², BSA 1.84 m²
   (Mosteller); Du Bois, Haycock, Gehan–George 1.85. Type `1.75` for height → refused: "looks like metres".
 - [ ] **Pharmacokinetics ▸ Ideal, adjusted and lean body weight** (110 kg, 170 cm, male) → IBW 65.9, adjusted 83.6,

@@ -216,7 +216,7 @@ values derived by hand.
 - Sensor presets other than ARRI's: a size that could not be checked against the manufacturer is typed in instead.
 
 ### Lighting & rendering
-New Engineering panel after Light & camera, seven calculators (Engineering +7, +1 group). Each opens with a reading
+New Engineering panel after Colour & appearance, seven calculators (Engineering +7, +1 group). Each opens with a reading
 built from its own numbers, states what it assumes, refuses bad input by name and draws. Oracles:
 `scripts/lighting-oracle.py` → `src/lib/__tests__/fixtures/lighting-oracle.json`.
 - **Sun position, golden hour & shadows** (`rend-sun-shadow`): Meeus low-accuracy solar coordinates (the NOAA Solar
@@ -338,6 +338,8 @@ Shrout & Fleiss's 1979 ICC table, and the metafor BCG meta-analysis.
   2011).
 - The shared forest plot builder (statchart.forestPlotSvg) takes an optional `maxRows`, so the meta-analysis forest
   can show every study (up to 30) and the pooled rows in one panel. Other callers are unchanged.
+- Under a figure style, a forest-plot row label too long for its margin wraps onto two or three lines instead of being
+  cut short with "…" (the meta-analysis forest's study names at single-column widths). As drawn, nothing changes.
 
 #### Added: Engineering (seven dosing tools)
 - **Biomedical:**

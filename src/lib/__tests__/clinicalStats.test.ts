@@ -52,7 +52,7 @@ const expectOk = (o: StatOutput): void => {
 };
 
 describe("diagnostic accuracy against statsmodels and the closed forms", () => {
-  for (const key of ["liver", "default", "fn0"]) {
+  for (const key of ["liver", "default", "fn0", "fp1fn0"]) {
     const o = O.diag[key];
     test(`${key}: ${o.input.join(", ")}`, () => {
       const [tp, fp, fn, tn] = o.input;
@@ -177,7 +177,7 @@ describe("ROC and DeLong", () => {
 });
 
 describe("2×2 epidemiology", () => {
-  for (const key of ["default", "zero", "small"]) {
+  for (const key of ["default", "zero", "small", "bZero"]) {
     const o = O.epi[key];
     test(`${key}: ${o.input.join(", ")} against statsmodels Table2x2 and confint_proportions_2indep`, () => {
       const [a, b, c, d] = o.input;
@@ -441,7 +441,7 @@ describe("meta-analysis: the BCG trials", () => {
     const data = "Study\tE1\tN1\tE0\tN0\nA\t0\t20\t0\t20\nB\t0\t30\t4\t30\nC\t5\t40\t9\t40\nD\t7\t50\t12\t50";
     const o = run("clin-meta", { data, measure: "or", fixed: "iv" });
     expectOk(o);
-    expect(o.text).toMatch(/Left out: A: no events in either arm/);
+    expect(o.text).toMatch(/Left out of the inverse-variance analysis: A: no events in either arm/);
     expect(o.text).toMatch(/0\.5 added to every cell/);
   });
   test("pane audit find: the counts default read as effect-and-SE is refused, not pooled", () => {
@@ -472,7 +472,8 @@ describe("the calculators, end to end", () => {
   test("diagnostic accuracy: 100% sensitivity corrects only the ratio measures, and says so", () => {
     const o = run("clin-diag", { tp: "50", fp: "10", fn: "0", tn: "40" });
     expectOk(o);
-    expect(o.text).toMatch(/FN = 0: LR\+, LR− and the DOR are computed with 0\.5 added/);
+    // Only the ratios that are 0 or infinite without it (review B4): LR+ = 50/(10/50) is finite and is not corrected.
+    expect(o.text).toMatch(/FN = 0: LR− and DOR are computed with 0\.5 added/);
     const sens = o.tables![0].rows.find((r) => r[0] === "Sensitivity")!;
     expect(sens[1]).toBe("100.0%");
   });

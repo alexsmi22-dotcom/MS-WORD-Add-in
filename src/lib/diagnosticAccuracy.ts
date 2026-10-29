@@ -50,8 +50,10 @@ export interface Diag2x2 {
   lrNeg: Ci;
   dor: Ci;
   youden: number;
-  /** True when 0.5 was added to every cell for the ratio measures. */
+  /** True when any ratio measure was computed with 0.5 added to every cell. */
   haldane: boolean;
+  /** The ratio measures that were corrected, by name ("LR+", "LR−", "DOR"): only those that were 0, infinite or 0/0. */
+  corrected: string[];
   /** The cell(s) that were zero, by name. */
   zeroCells: string[];
 }
@@ -82,13 +84,23 @@ export function diag2x2(tp: number, fp: number, fn: number, tn: number, method: 
   )
     .filter(([, v]) => v === 0)
     .map(([k]) => k);
-  const haldane = zeroCells.length > 0;
-  const k = haldane ? 0.5 : 0;
-  const [a, b, c, d] = [tp + k, fp + k, fn + k, tn + k];
-  const se1 = a / (a + c);
-  const sp1 = d / (b + d);
-  const lrPos = logCi(se1 / (1 - sp1), Math.sqrt(1 / a - 1 / (a + c) + 1 / b - 1 / (b + d)));
-  const lrNeg = logCi((1 - se1) / sp1, Math.sqrt(1 / c - 1 / (a + c) + 1 / d - 1 / (b + d)));
+  // Haldane–Anscombe only for a ratio that is truly 0, infinite or 0/0 (review B4: TP 50, FP 1, FN 0, TN 60 has
+  // LR+ = Se/(1 − Sp) = 61 exactly, and correcting every cell printed 40.93). LR+ needs TP > 0 and FP > 0, LR− needs
+  // FN > 0 and TN > 0, the DOR needs every cell > 0.
+  const cells = (k: number): [number, number, number, number] => [tp + k, fp + k, fn + k, tn + k];
+  const corrected: string[] = [];
+  const cPos = tp === 0 || fp === 0;
+  const cNeg = fn === 0 || tn === 0;
+  const cDor = zeroCells.length > 0;
+  if (cPos) corrected.push("LR+");
+  if (cNeg) corrected.push("LR−");
+  if (cDor) corrected.push("DOR");
+  const haldane = corrected.length > 0;
+  const lrPosOf = ([a, b, c, d]: number[]): Ci => logCi(a / (a + c) / (b / (b + d)), Math.sqrt(1 / a - 1 / (a + c) + 1 / b - 1 / (b + d)));
+  const lrNegOf = ([a, b, c, d]: number[]): Ci => logCi(c / (a + c) / (d / (b + d)), Math.sqrt(1 / c - 1 / (a + c) + 1 / d - 1 / (b + d)));
+  const lrPos = lrPosOf(cells(cPos ? 0.5 : 0));
+  const lrNeg = lrNegOf(cells(cNeg ? 0.5 : 0));
+  const [a, b, c, d] = cells(cDor ? 0.5 : 0);
   const dor = logCi((a * d) / (b * c), Math.sqrt(1 / a + 1 / b + 1 / c + 1 / d));
   return {
     tp,
@@ -109,6 +121,7 @@ export function diag2x2(tp: number, fp: number, fn: number, tn: number, method: 
     dor,
     youden: sens.est + spec.est - 1,
     haldane,
+    corrected,
     zeroCells,
   };
 }
@@ -276,5 +289,8 @@ export function budererN(se: number, sp: number, prev: number, d: number, z = Z9
   const nSens = Math.ceil((z * z * se * (1 - se)) / (d * d * prev) - 1e-9);
   const nSpec = Math.ceil((z * z * sp * (1 - sp)) / (d * d * (1 - prev)) - 1e-9);
   const n = Math.max(nSens, nSpec);
-  return { nSens, nSpec, n, diseased: Math.round(n * prev), healthy: Math.round(n * (1 - prev)) };
+  // With the condition: n × prevalence rounded UP (review MINOR: "about 138" undershot 138.4); the rest without, so
+  // the two halves add up to n.
+  const diseased = Math.min(n, Math.ceil(n * prev - 1e-9));
+  return { nSens, nSpec, n, diseased, healthy: n - diseased };
 }

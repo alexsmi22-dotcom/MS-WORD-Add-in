@@ -17,8 +17,8 @@ import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 import { fitReading } from "./statLibReading";
 import { chiSquareIndependence } from "./stats2";
 import { groupedBarSvg } from "./statchart";
-import { PROP_CI_NAME, pct, fx, pctCi, fxCi, readCount, readReal, type PropCiMethod } from "./clinicalCore";
-import { diag2x2, bayesValues, bayesWithCi, postTest, rocFit, delongPaired, budererN, type RocFit } from "./diagnosticAccuracy";
+import { PROP_CI_NAME, pct, fx, pctCi, fxCi, readCount, readReal, ratioFmt, type PropCiMethod } from "./clinicalCore";
+import { diag2x2, bayesValues, bayesWithCi, rocFit, delongPaired, budererN, type RocFit } from "./diagnosticAccuracy";
 import { epi2x2, altmanNnt, rateRatio } from "./epi2x2";
 import { cohenKappa, landisKoch, blandAltman, iccFit, kooLi, type KappaWeight } from "./agreement";
 import { countEffect, mantelHaenszel, metaAnalyze, eggerTest, EGGER_MIN_STUDIES, type CountMeasure, type CountStudy, type Pooled } from "./metaAnalysis";
@@ -60,7 +60,14 @@ function readCountGrid(raw: string, label: string): number[][] | { error: string
     .filter(Boolean);
   const rows: number[][] = [];
   for (const [i, line] of lines.entries()) {
-    const cells = line.split(/[\s,\t]+/).filter(Boolean);
+    // Separators (review M7: "1,500, 8,500" and "1,200 30" were split at their thousands commas): tabs when there are
+    // tabs; else ", " or whitespace when the line has whitespace (a comma inside a token is then a thousands
+    // separator); else bare commas ("15,85").
+    const t = line.trim();
+    if (!/\d/.test(t)) continue;
+    const cells = (t.includes("\t") ? t.split(/\t+/) : /\s/.test(t) ? t.split(/,\s+|\s+/) : t.split(/,/))
+      .map((c) => c.trim().replace(/,$/, ""))
+      .filter(Boolean);
     // A row label in front ("Exposed 15 85") is allowed and dropped.
     const numeric = cells.filter((c, j) => !(j === 0 && !/^[−+-]?\d/.test(c)));
     if (!numeric.length) continue;
@@ -122,13 +129,26 @@ const CI_OPTIONS = [
 // ---------------------------------------------------------------------------------------------------------------
 // Diagnostic test accuracy
 
+/**
+ * A probability typed as a percentage ("90%", "90") or a proportion ("0.9"). A bare number up to 1 is a proportion,
+ * and the result says how each such entry was read (review MINOR: "0.5" and "1" are ambiguous): PROP_NOTES collects
+ * them for the calculator running now (each compute resets it first).
+ */
+let PROP_NOTES: string[] = [];
+const PROP_HINT = " A bare number up to 1 is read as a proportion (1 = 100%); type 1% for one percent.";
 function probField(raw: string, label: string): number | { error: string } {
   const v = readReal(raw, label, { percent: true });
   if (isErr(v)) return v;
+  const t = (raw ?? "").trim();
+  if (!t.endsWith("%") && v > 0 && v <= 1) PROP_NOTES.push(`${label.toLowerCase()} ${t} = ${pct(v)}`);
   return v;
+}
+function propNoteLine(): string[] {
+  return PROP_NOTES.length ? [`Read as proportions (add % to type a percentage): ${PROP_NOTES.join("; ")}.`] : [];
 }
 
 function diagCalc(read: Read): StatOutput {
+  PROP_NOTES = [];
   const r = getter(read);
   const mode = r("mode") === "rates" ? "rates" : "table";
   const method: PropCiMethod = r("ci") === "cp" ? "cp" : "wilson";
@@ -138,6 +158,9 @@ function diagCalc(read: Read): StatOutput {
   let sp: number;
   let lrPos: number | null;
   let lrNeg: number | null;
+  // The LRs as Se and Sp give them, uncorrected: Infinity when unbounded, NaN when 0/0 (for the Fagan lines).
+  let lrPosTrue: number;
+  let lrNegTrue: number;
   let preDefault: number;
   let preName: string;
   if (mode === "table") {
@@ -166,19 +189,27 @@ function diagCalc(read: Read): StatOutput {
     prow("NPV (at the sample prevalence)", d.npv, "no negative results");
     prow("Accuracy", d.acc, "");
     prow("Prevalence in the sample", d.prevalence, "");
-    rows.push(["LR+", fx(d.lrPos.est), fxCi(d.lrPos.lo, d.lrPos.hi)]);
-    rows.push(["LR−", fx(d.lrNeg.est), fxCi(d.lrNeg.lo, d.lrNeg.hi)]);
-    rows.push(["Diagnostic odds ratio", fx(d.dor.est), fxCi(d.dor.lo, d.dor.hi)]);
+    for (const [nm, c] of [
+      ["LR+", d.lrPos],
+      ["LR−", d.lrNeg],
+      ["Diagnostic odds ratio", d.dor],
+    ] as const) {
+      const rf = ratioFmt([c.est, c.lo, c.hi]);
+      rows.push([nm, rf(c.est), `${rf(c.lo)} to ${rf(c.hi)}`]);
+    }
     rows.push(["Youden J", fx(d.youden, 3), ""]);
     lrPos = d.lrPos.est;
     lrNeg = d.lrNeg.est;
+    lrPosTrue = d.fp > 0 ? d.sens.est / (1 - d.spec.est) : d.tp > 0 ? Infinity : NaN;
+    lrNegTrue = d.tn > 0 ? (1 - d.sens.est) / d.spec.est : d.fn > 0 ? Infinity : NaN;
     preDefault = d.prevalence.est;
     preName = "the sample prevalence";
     lines.push(`Proportions: ${PROP_CI_NAME[method]} intervals. LR+ and LR−: log method (Simel et al. 1991). DOR: log (Woolf) method.`);
     if (d.haldane) {
+      const which = d.corrected.length === 1 ? d.corrected[0] : `${d.corrected.slice(0, -1).join(", ")} and ${d.corrected[d.corrected.length - 1]}`;
       lines.push(
-        `${d.zeroCells.join(" and ")} = 0: LR+, LR− and the DOR are computed with 0.5 added to every cell (Haldane–Anscombe correction); ` +
-          "the proportions are not corrected.",
+        `${d.zeroCells.join(" and ")} = 0: ${which} ${d.corrected.length === 1 ? "is" : "are"} computed with 0.5 added to every cell (Haldane–Anscombe correction), ` +
+          `because without it ${d.corrected.length === 1 ? "it is" : "they are"} 0, infinite or 0/0; the other measures and the proportions are not corrected.`,
       );
     }
     lines.push(
@@ -188,7 +219,7 @@ function diagCalc(read: Read): StatOutput {
     if (prevRaw) {
       const p2 = probField(prevRaw, "Other prevalence");
       if (isErr(p2)) return refuse(p2.error);
-      if (!(p2 > 0 && p2 < 1)) return refuse("Other prevalence: enter a value strictly between 0% and 100% (at 0% or 100% PPV or NPV is fixed by definition).");
+      if (!(p2 > 0 && p2 < 1)) return refuse(`Other prevalence: enter a value strictly between 0% and 100% (at 0% or 100% PPV or NPV is fixed by definition).${PROP_HINT}`);
       const b = bayesWithCi(se, sp, d.nDiseased, d.nHealthy, p2);
       const add = (name: string, c: { est: number; lo: number; hi: number } | null): void => {
         if (!c) rows.push([name, "not defined", "no one tests positive"]);
@@ -213,7 +244,7 @@ function diagCalc(read: Read): StatOutput {
     if (!(pv > 0 && pv < 1)) {
       return refuse(
         `Prevalence: enter a value strictly between 0% and 100%. At ${pct(pv)} nobody ${pv <= 0 ? "has" : "is free of"} the condition, so ` +
-          `${pv <= 0 ? "every positive result is false and PPV is 0 by definition" : "every negative result is false and NPV is 0 by definition"}: there is nothing to estimate.`,
+          `${pv <= 0 ? "every positive result is false and PPV is 0 by definition" : "every negative result is false and NPV is 0 by definition"}: there is nothing to estimate.${PROP_HINT}`,
       );
     }
     se = s1;
@@ -221,12 +252,14 @@ function diagCalc(read: Read): StatOutput {
     const b = bayesValues(se, sp, pv);
     lrPos = sp < 1 ? se / (1 - sp) : null;
     lrNeg = sp > 0 ? (1 - se) / sp : null;
+    lrPosTrue = sp < 1 ? se / (1 - sp) : se > 0 ? Infinity : NaN;
+    lrNegTrue = sp > 0 ? (1 - se) / sp : se < 1 ? Infinity : NaN;
     lines.push(`Diagnostic accuracy from sensitivity ${pct(se)}, specificity ${pct(sp)} and prevalence ${pct(pv)} (no counts, so no confidence intervals).`);
     rows.push(["Sensitivity", pct(se), ""], ["Specificity", pct(sp), ""]);
     rows.push(["PPV", b.ppv === null ? "not defined (no positives)" : pct(b.ppv), ""]);
     rows.push(["NPV", b.npv === null ? "not defined (no negatives)" : pct(b.npv), ""]);
-    rows.push(["LR+", lrPos === null ? "unbounded (specificity is 100%)" : fx(lrPos), ""]);
-    rows.push(["LR−", lrNeg === null ? "unbounded (specificity is 0%)" : fx(lrNeg), ""]);
+    rows.push(["LR+", lrPos === null ? (se > 0 ? "unbounded (specificity is 100%)" : "not defined (0/0: sensitivity 0%, specificity 100%)") : ratioFmt([lrPos])(lrPos), ""]);
+    rows.push(["LR−", lrNeg === null ? (se < 1 ? "unbounded (specificity is 0%)" : "not defined (0/0: sensitivity 100%, specificity 0%)") : ratioFmt([lrNeg])(lrNeg), ""]);
     rows.push(["Diagnostic odds ratio", lrPos !== null && lrNeg !== null && lrNeg > 0 ? fx(lrPos / lrNeg) : "unbounded (a ratio has a zero denominator)", ""]);
     rows.push(["Youden J", fx(se + sp - 1, 3), ""]);
     preDefault = pv;
@@ -241,23 +274,35 @@ function diagCalc(read: Read): StatOutput {
     pre = p;
     preName = "the pre-test probability entered";
   }
-  if (!(pre > 0 && pre < 1)) return refuse("Pre-test probability: enter a value strictly between 0% and 100%.");
-  const postPos = lrPos === null ? 1 : postTest(pre, lrPos);
-  const postNeg = lrNeg === null ? 0 : postTest(pre, lrNeg);
-  rows.push(["Post-test probability after a positive", pct(postPos), ""]);
-  rows.push(["Post-test probability after a negative", pct(postNeg), ""]);
-  lines.push(`Pre-test probability ${pct(pre)} (${preName}): after a positive result ${pct(postPos)}, after a negative ${pct(postNeg)} (odds form of Bayes' rule; the Fagan nomogram).`);
+  if (!(pre > 0 && pre < 1)) return refuse(`Pre-test probability: enter a value strictly between 0% and 100%.${PROP_HINT}`);
+  // Post-test probabilities by Bayes' rule from Se and Sp themselves (review B2: with Sp 0% a negative result was
+  // printed as 0.0% where 1 − NPV is 100%, and with Se 0%, Sp 100% a positive was 100% where PPV is 0/0). Null when the
+  // denominator is 0: no one tests positive (or negative), and the probability after such a result is not defined.
+  const bv = bayesValues(se, sp, pre);
+  const postPos = bv.ppv;
+  const postNeg = bv.npv === null ? null : 1 - bv.npv;
+  const ptxt = (v: number | null, what: string): string => (v === null ? `not defined (no one tests ${what})` : pct(v));
+  rows.push(["Post-test probability after a positive", ptxt(postPos, "positive"), ""]);
+  rows.push(["Post-test probability after a negative", ptxt(postNeg, "negative"), ""]);
+  lines.push(`Pre-test probability ${pct(pre)} (${preName}): after a positive result ${ptxt(postPos, "positive")}, after a negative ${ptxt(postNeg, "negative")} (Bayes' rule; the Fagan nomogram).`);
   const table: StatTable = { label: "Diagnostic accuracy", rows };
+  const lrLabel = (v: number): string => (Number.isFinite(v) ? ratioFmt([v])(v) : "unbounded");
   const fagan = faganSvg(pre, [
-    { label: lrPos === null ? `Positive: ${pct(postPos)}` : `Positive (LR+ ${fx(lrPos)}): ${pct(postPos)}`, lr: lrPos === null ? 1e6 : lrPos, post: postPos },
-    { label: lrNeg === null ? `Negative: ${pct(postNeg)}` : `Negative (LR− ${fx(lrNeg)}): ${pct(postNeg)}`, lr: lrNeg === null ? 1e6 : Math.max(lrNeg, 1e-9), post: postNeg },
+    { label: `Positive (LR+ ${Number.isNaN(lrPosTrue) ? "not defined" : lrLabel(lrPosTrue)}): ${ptxt(postPos, "positive")}`, lr: lrPosTrue, post: postPos ?? NaN },
+    { label: `Negative (LR− ${Number.isNaN(lrNegTrue) ? "not defined" : lrLabel(lrNegTrue)}): ${ptxt(postNeg, "negative")}`, lr: lrNegTrue, post: postNeg ?? NaN },
   ]);
   const sensText = mode === "table" ? `${pct(se)} (95% CI ${rows[1][2]})` : pct(se);
+  // The verb follows the direction (review M6: with LR+ below 1 a positive result LOWERS the probability).
+  const move = (post: number | null, what: string): string => {
+    if (post === null) return `no one tests ${what}, so a ${what} result has no post-test probability`;
+    const verb = post > pre + 1e-12 ? "raises it to" : post < pre - 1e-12 ? "lowers it to" : "leaves it at";
+    return `a ${what} result ${verb} ${pct(post)}`;
+  };
   const reading = fitReading(
-    `The test detects ${sensText} of those with the condition and clears ${pct(sp)} of those without; at a ${pct(pre)} pre-test probability, a positive result raises it to ${pct(postPos)} and a negative one lowers it to ${pct(postNeg)}.`,
-    `Sensitivity ${pct(se)}, specificity ${pct(sp)}: a positive result moves a ${pct(pre)} pre-test probability to ${pct(postPos)}, a negative one to ${pct(postNeg)}.`,
+    `The test detects ${sensText} of those with the condition and clears ${pct(sp)} of those without; at a ${pct(pre)} pre-test probability, ${move(postPos, "positive")} and ${move(postNeg, "negative")}.`,
+    `Sensitivity ${pct(se)}, specificity ${pct(sp)}: at a ${pct(pre)} pre-test probability, ${move(postPos, "positive")} and ${move(postNeg, "negative")}.`,
   );
-  return { text: [...lines, "", "For research and education; not a substitute for clinical judgement."].join("\n"), reading, svg: fagan, tables: [table] };
+  return { text: [...lines, ...propNoteLine(), "", "For research and education; not a substitute for clinical judgement."].join("\n"), reading, svg: fagan, tables: [table] };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -274,6 +319,39 @@ export function rocDefaultTable(): string {
     for (let k = 0; k < c; k++) lines.push(`${d}\t${i + 1}`);
   });
   return lines.join("\n");
+}
+
+/**
+ * An observed value printed exactly as it was read (review M2: cutoffs rounded to 4 decimals merged distinct scores and
+ * named a threshold no case had): the shortest decimal that round-trips, U+2212, ×10ⁿ only where JS would use e.
+ */
+function exactNum(v: number): string {
+  if (v === 0) return "0";
+  const a = Math.abs(v);
+  let t = String(a);
+  const m = /^(\d(?:\.\d+)?)e([+-]\d+)$/.exec(t);
+  if (m) {
+    const sup: Record<string, string> = { "-": "⁻", "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹" };
+    t = `${m[1]}×10${String(Number(m[2])).split("").map((c) => sup[c] ?? c).join("")}`;
+  }
+  return (v < 0 ? "−" : "") + t;
+}
+
+/**
+ * Words for a statistic only when its whole interval falls in one band (review M4: AUC 0.889 with CI 0.581 to 1 was
+ * called "excellent"). Otherwise null, and the reading says the interval is too wide to classify.
+ */
+function bandOf(est: number, lo: number, hi: number, words: (v: number) => string): string | null {
+  // The bands the interval touches, in order: one band is named; two neighbouring bands are named as a range
+  // ("excellent to outstanding"); three or more are too wide to classify.
+  const seen: string[] = [];
+  for (let i = 0; i <= 200; i++) {
+    const w = words(lo + ((hi - lo) * i) / 200);
+    if (seen[seen.length - 1] !== w) seen.push(w);
+  }
+  if (!seen.includes(words(est))) seen.push(words(est));
+  if (seen.length === 1) return seen[0];
+  return seen.length === 2 ? `${seen[0]} to ${seen[1]}` : null;
 }
 
 function aucWords(a: number): string {
@@ -331,9 +409,9 @@ function rocCalc(read: Read): StatOutput {
     `ROC analysis of ${sName} against ${t.names[oc]}: ${intText(fit.nPos)} with the condition, ${intText(fit.nNeg)} without${dropped ? `; ${intText(dropped)} row${dropped === 1 ? "" : "s"} with a missing value left out` : ""}.`,
     `A case is called positive when its score is ${op} the cutoff (${higher ? "higher" : "lower"} scores mean more likely diseased).`,
     `AUC ${fx(fit.auc, 3)}, DeLong SE ${fx(fit.se, 4)}, 95% CI ${fxCi(fit.lo, fit.hi, 3)} (AUC ± 1.96·SE, DeLong et al. 1988).`,
-    `Youden-optimal cutoff ${op} ${fx(fit.best.cutoff, 4).replace(/\.?0+$/, "")}: sensitivity ${pct(fit.best.sens)}, specificity ${pct(fit.best.spec)}, J = ${fx(fit.bestJ, 3)}.`,
+    `Youden-optimal cutoff ${op} ${exactNum(fit.best.cutoff)}: sensitivity ${pct(fit.best.sens)}, specificity ${pct(fit.best.spec)}, J = ${fx(fit.bestJ, 3)}.`,
   ];
-  const cutText = fx(fit.best.cutoff, 4).replace(/\.?0+$/, "");
+  const cutText = exactNum(fit.best.cutoff);
   const rows: string[][] = [
     ["Measure", "Value", "95% CI"],
     [`AUC (${sName})`, fx(fit.auc, 3), fxCi(fit.lo, fit.hi, 3)],
@@ -368,8 +446,9 @@ function rocCalc(read: Read): StatOutput {
       `The AUC of ${fx(fit.auc, 3)} is below the 0.5 of chance because ${sName} runs the other way: ${higher ? "lower" : "higher"} scores go with the condition, so switch the Direction (AUC ${fx(1 - fit.auc, 3)}).`,
     );
   } else {
+    const aucBand = bandOf(fit.auc, fit.lo, fit.hi, aucWords);
     reading = fitReading(
-      `The score ${sName} separates cases with and without the condition with an AUC of ${fx(fit.auc, 3)} (95% CI ${fxCi(fit.lo, fit.hi, 3)}), ${aucWords(fit.auc)} where 0.5 is chance; the best single cutoff, ${op} ${cutText}, gives sensitivity ${pct(fit.best.sens)} and specificity ${pct(fit.best.spec)}.`,
+      `The score ${sName} separates cases with and without the condition with an AUC of ${fx(fit.auc, 3)} (95% CI ${fxCi(fit.lo, fit.hi, 3)}), ${aucBand ? `${aucBand} where 0.5 is chance` : "an interval too wide to classify (0.5 is chance)"}; the best single cutoff, ${op} ${cutText}, gives sensitivity ${pct(fit.best.sens)} and specificity ${pct(fit.best.spec)}.`,
       `AUC ${fx(fit.auc, 3)} (95% CI ${fxCi(fit.lo, fit.hi, 3)}); the cutoff ${op} ${cutText} gives sensitivity ${pct(fit.best.sens)} and specificity ${pct(fit.best.spec)}.`,
     );
   }
@@ -377,7 +456,7 @@ function rocCalc(read: Read): StatOutput {
   if (fit.cuts.length <= 25) {
     tables.push({
       label: "Every cutoff",
-      rows: [["Cutoff", "Sensitivity", "Specificity", "Youden J"], ...fit.cuts.map((c) => [`${op} ${fx(c.cutoff, 4).replace(/\.?0+$/, "")}`, pct(c.sens), pct(c.spec), fx(c.sens + c.spec - 1, 3)])],
+      rows: [["Cutoff", "Sensitivity", "Specificity", "Youden J"], ...fit.cuts.map((c) => [`${op} ${exactNum(c.cutoff)}`, pct(c.sens), pct(c.spec), fx(c.sens + c.spec - 1, 3)])],
     });
   }
   const svg = rocSvg(curves, { fpr: 1 - fit.best.spec, tpr: fit.best.sens, label: `Youden cutoff ${op} ${cutText}` });
@@ -388,6 +467,7 @@ function rocCalc(read: Read): StatOutput {
 // Buderer sample size
 
 function budererCalc(read: Read): StatOutput {
+  PROP_NOTES = [];
   const r = getter(read);
   const vals: number[] = [];
   for (const [k, nm] of [
@@ -398,7 +478,7 @@ function budererCalc(read: Read): StatOutput {
   ] as const) {
     const v = probField(r(k), nm);
     if (isErr(v)) return refuse(v.error);
-    if (!(v > 0 && v < 1)) return refuse(`${nm}: enter a value strictly between 0% and 100%.`);
+    if (!(v > 0 && v < 1)) return refuse(`${nm}: enter a value strictly between 0% and 100%.${PROP_HINT}`);
     vals.push(v);
   }
   const [se, sp, prev, d] = vals;
@@ -414,19 +494,19 @@ function budererCalc(read: Read): StatOutput {
   const lines = [
     `Diagnostic accuracy study size (Buderer 1996): expected sensitivity ${pct(se)}, specificity ${pct(sp)}, prevalence ${pct(prev)}, 95% CI half-width ±${pct(d)}.`,
     `For sensitivity: n = 1.96²·Se(1 − Se)/(d²·prevalence) = ${intText(b.nSens)}. For specificity: n = 1.96²·Sp(1 − Sp)/(d²·(1 − prevalence)) = ${intText(b.nSpec)}.`,
-    `Recruit ${intText(b.n)} subjects (about ${intText(b.diseased)} with the condition and ${intText(b.healthy)} without), before any allowance for dropout.`,
+    `Recruit ${intText(b.n)} subjects: at ${pct(prev)} prevalence, ${intText(b.diseased)} with the condition (${intText(b.n)} × ${pct(prev)}, rounded up) and ${intText(b.healthy)} without, before any allowance for dropout.`,
   ];
   const rows = [
     ["Target", "Subjects needed", "With the condition"],
-    ["Sensitivity", intText(b.nSens), intText(Math.round(b.nSens * prev))],
-    ["Specificity", intText(b.nSpec), intText(Math.round(b.nSpec * prev))],
+    ["Sensitivity", intText(b.nSens), intText(Math.ceil(b.nSens * prev - 1e-9))],
+    ["Specificity", intText(b.nSpec), intText(Math.ceil(b.nSpec * prev - 1e-9))],
     ["Study (the larger)", intText(b.n), intText(b.diseased)],
   ];
   const driver = b.nSens >= b.nSpec ? "sensitivity" : "specificity";
   const reading = fitReading(
-    `To estimate both to within ±${fx(100 * d, 1)} percentage points at ${pct(prev)} prevalence, the study needs ${intText(b.n)} subjects, about ${intText(b.diseased)} of them with the condition; ${driver} sets the size.`,
+    `To estimate both to within ±${fx(100 * d, 1)} percentage points at ${pct(prev)} prevalence, the study needs ${intText(b.n)} subjects, ${intText(b.diseased)} of them with the condition; ${driver} sets the size.`,
   );
-  return { text: lines.join("\n"), reading, svg, tables: [{ label: "Sample size", rows }] };
+  return { text: [...lines, ...propNoteLine()].join("\n"), reading, svg, tables: [{ label: "Sample size", rows }] };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -465,11 +545,21 @@ function epiCalc(read: Read): StatOutput {
         : `could be chance (${pName} ${pText(pMain)})`
     : "";
   const forest: { label: string; estimate: number; low: number; high: number }[] = [];
+  const rrf = ratioFmt([e.rr.est, e.rr.lo, e.rr.hi]);
+  const orf = ratioFmt([e.or.est, e.or.lo, e.or.hi]);
+  // Review M5: a ratio interval that excludes 1 beside an association test above 5% (or the reverse) is said, not
+  // left as two contradictory statements. Wald-type log intervals and Fisher's exact test can disagree near 5%.
+  const ratioCi = caseControl ? e.or : e.rr;
+  const ciExcludes = ratioCi.lo > 1 || ratioCi.hi < 1;
+  const disagree = Number.isFinite(pMain) && ((ciExcludes && v !== "clear") || (!ciExcludes && v === "clear"));
+  const disagreeText = disagree
+    ? `the ${caseControl ? "odds" : "risk"} ratio interval ${ciExcludes ? "excludes" : "includes"} 1 while ${pName === "Fisher" ? "Fisher's exact test" : "the χ² test"} gives ${pText(pMain)}, so the methods disagree and the evidence is borderline`
+    : "";
   if (!caseControl) {
     lines.push(`Cohort study or trial: risk ${intText(a)}/${intText(n1)} = ${pct(e.p1)} in row 1 (exposed/treated), ${intText(c)}/${intText(n0)} = ${pct(e.p0)} in row 2 (unexposed/control).`);
     rows.push(["Risk, row 1", pct(e.p1), "", ""], ["Risk, row 2", pct(e.p0), "", ""]);
-    rows.push(["Risk ratio", fx(e.rr.est), fxCi(e.rr.lo, e.rr.hi), "Katz log"]);
-    rows.push(["Odds ratio", fx(e.or.est), fxCi(e.or.lo, e.or.hi), "Woolf log"]);
+    rows.push(["Risk ratio", rrf(e.rr.est), `${rrf(e.rr.lo)} to ${rrf(e.rr.hi)}`, `Katz log${e.rrCorrected ? ", 0.5 added" : ""}`]);
+    rows.push(["Odds ratio", orf(e.or.est), `${orf(e.or.lo)} to ${orf(e.or.hi)}`, `Woolf log${e.orCorrected ? ", 0.5 added" : ""}`]);
     rows.push(["Risk difference (1 − 2)", pct(e.rd.est), pctCi(e.rd.lo, e.rd.hi), rdMethod === "wald" ? "Wald" : "Newcombe hybrid score"]);
     // Benefit: fewer adverse events, or more good ones, in row 1.
     const ben = adverse ? e.arr : e.rd;
@@ -477,7 +567,7 @@ function epiCalc(read: Read): StatOutput {
     if (adverse) rows.push(["RRR (1 − RR)", pct(e.rrr.est), pctCi(e.rrr.lo, e.rrr.hi), "from the RR interval"]);
     const nnt = altmanNnt(ben.est, ben.lo, ben.hi, (x) => fx(x, 1));
     rows.push(["Number needed to treat", nnt.point ? `${nnt.point.kind} ${fx(nnt.point.value, 1)}` : "no difference", nnt.text.replace(/^[^(]*\(|\)$/g, ""), "Altman 1998"]);
-    lines.push(`Risk ratio ${fx(e.rr.est)} (95% CI ${fxCi(e.rr.lo, e.rr.hi)}, Katz log method); odds ratio ${fx(e.or.est)} (95% CI ${fxCi(e.or.lo, e.or.hi)}, Woolf).`);
+    lines.push(`Risk ratio ${rrf(e.rr.est)} (95% CI ${rrf(e.rr.lo)} to ${rrf(e.rr.hi)}, Katz log method); odds ratio ${orf(e.or.est)} (95% CI ${orf(e.or.lo)} to ${orf(e.or.hi)}, Woolf).`);
     lines.push(`Risk difference ${pct(e.rd.est)} (95% CI ${pctCi(e.rd.lo, e.rd.hi)}, ${rdMethod === "wald" ? "Wald" : "Newcombe hybrid score"}).`);
     lines.push(`NNT (Altman 1998): ${nnt.text}.`);
     if (nnt.crossesZero) {
@@ -487,20 +577,25 @@ function epiCalc(read: Read): StatOutput {
     }
     forest.push({ label: "Risk ratio", estimate: e.rr.est, low: e.rr.lo, high: e.rr.hi }, { label: "Odds ratio", estimate: e.or.est, low: e.or.lo, high: e.or.hi });
     reading = fitReading(
-      `The risk is ${pct(e.p1)} in row 1 against ${pct(e.p0)} in row 2, a risk ratio of ${fx(e.rr.est)} (95% CI ${fxCi(e.rr.lo, e.rr.hi)}), ${nnt.point ? `${nnt.point.kind} ${fx(nnt.point.value, 1)}` : "no absolute difference"}; the difference ${pPhrase}.`,
-      `Risk ${pct(e.p1)} vs ${pct(e.p0)}: risk ratio ${fx(e.rr.est)} (95% CI ${fxCi(e.rr.lo, e.rr.hi)}); the difference ${pPhrase}.`,
+      `The risk is ${pct(e.p1)} in row 1 against ${pct(e.p0)} in row 2, a risk ratio of ${rrf(e.rr.est)} (95% CI ${rrf(e.rr.lo)} to ${rrf(e.rr.hi)}), ${nnt.point ? `${nnt.point.kind} ${fx(nnt.point.value, 1)}` : "no absolute difference"}; ${disagree ? disagreeText : `the difference ${pPhrase}`}.`,
+      `Risk ${pct(e.p1)} vs ${pct(e.p0)}: risk ratio ${rrf(e.rr.est)} (95% CI ${rrf(e.rr.lo)} to ${rrf(e.rr.hi)}); ${disagree ? disagreeText : `the difference ${pPhrase}`}.`,
     );
   } else {
     lines.push(`Case-control study: of the exposed (row 1), ${intText(a)} cases and ${intText(b)} controls; of the unexposed (row 2), ${intText(c)} cases and ${intText(d)} controls.`);
     lines.push("A case-control sample fixes the number of cases, so risks, the risk ratio, the risk difference and the NNT cannot be estimated from it; the odds ratio can.");
-    rows.push(["Odds ratio", fx(e.or.est), fxCi(e.or.lo, e.or.hi), "Woolf log"]);
-    lines.push(`Odds ratio ${fx(e.or.est)} (95% CI ${fxCi(e.or.lo, e.or.hi)}, Woolf log method).`);
+    rows.push(["Odds ratio", orf(e.or.est), `${orf(e.or.lo)} to ${orf(e.or.hi)}`, `Woolf log${e.orCorrected ? ", 0.5 added" : ""}`]);
+    lines.push(`Odds ratio ${orf(e.or.est)} (95% CI ${orf(e.or.lo)} to ${orf(e.or.hi)}, Woolf log method).`);
     forest.push({ label: "Odds ratio", estimate: e.or.est, low: e.or.lo, high: e.or.hi });
     reading = fitReading(
-      `The odds of exposure are ${fx(e.or.est)} times as high among cases as among controls (odds ratio 95% CI ${fxCi(e.or.lo, e.or.hi)}); the association ${pPhrase}.`,
+      `The odds of exposure are ${orf(e.or.est)} times as high among cases as among controls (odds ratio 95% CI ${orf(e.or.lo)} to ${orf(e.or.hi)}); ${disagree ? disagreeText : `the association ${pPhrase}`}.`,
     );
   }
-  if (e.haldane) lines.push("A cell is 0: the risk ratio and odds ratio are computed with 0.5 added to every cell (Haldane–Anscombe correction); risks and the risk difference use the counts as entered.");
+  if (e.haldane) {
+    const which = caseControl ? "the odds ratio is" : e.rrCorrected && e.orCorrected ? "the risk ratio and odds ratio are" : e.orCorrected ? "the odds ratio is" : "the risk ratio is";
+    const whyNot = !caseControl && e.orCorrected && !e.rrCorrected ? " The risk ratio is finite as it stands and is not corrected." : "";
+    if (!caseControl || e.orCorrected) lines.push(`A cell is 0: ${which} computed with 0.5 added to every cell (Haldane–Anscombe correction), because without it the ratio is 0 or infinite; risks and the risk difference use the counts as entered.${whyNot}`);
+  }
+  if (disagree) lines.push(`Note: ${disagreeText}.`);
   if (Number.isFinite(pChi)) lines.push(`Pearson χ² = ${fx(chi.chi2, 3)}, df = 1, ${pText(pChi)}${pF !== undefined ? `; Fisher's exact (two-sided) ${pText(pF)}, the one to report on a small table` : ""}; computed by the Stats chi-square tool's engine.`);
   for (const w of chi.warnings ?? []) lines.push(w.replace(/—/g, "-"));
   rows.push(["Association test", pF !== undefined ? "Fisher's exact" : "Pearson χ²", pText(pMain), pF !== undefined ? `χ² ${pText(pChi)}` : ""]);
@@ -532,26 +627,35 @@ function rateCalc(read: Read): StatOutput {
     return fx(v, d);
   };
   const perText = `per ${intText(per)} ${unit}`;
+  // One decimal count for a rate difference and its interval (review MINOR: they differed).
+  const rdD = (() => {
+    const m = Math.max(Math.abs(rr.r1), Math.abs(rr.r0)) * per;
+    return m > 0 ? Math.max(0, Math.min(6, 2 - Math.floor(Math.log10(m)))) : 2;
+  })();
+  const rdf = (x: number): string => fx(x * per, rdD);
+  const irf = ratioFmt([rr.irr, rr.exact.lo, rr.exact.hi, ...(rr.wald ? [rr.wald.lo, rr.wald.hi] : [])]);
+  // Person-time echoed as typed (review MINOR: 2.5 printed as "3").
+  const ptText = (t: number): string => (Number.isInteger(t) ? intText(t) : exactNum(t));
   const lines = [
-    `Incidence rates: ${intText(a)} events in ${fx(t1, 0)} ${unit} (group 1) = ${rate(rr.r1)} ${perText}; ${intText(c)} in ${fx(t0, 0)} = ${rate(rr.r0)} ${perText}.`,
-    `Rate ratio ${fx(rr.irr)}: exact 95% CI ${fxCi(rr.exact.lo, rr.exact.hi)} (conditional binomial, Clopper–Pearson)${rr.wald ? `; Wald (Poisson, log scale) ${fxCi(rr.wald.lo, rr.wald.hi)}` : "; no Wald interval (no events in group 1)"}.`,
+    `Incidence rates: ${intText(a)} events in ${ptText(t1)} ${unit} (group 1) = ${rate(rr.r1)} ${perText}; ${intText(c)} in ${ptText(t0)} = ${rate(rr.r0)} ${perText}.`,
+    `Rate ratio ${irf(rr.irr)}: exact 95% CI ${irf(rr.exact.lo)} to ${irf(rr.exact.hi)} (conditional binomial, Clopper–Pearson)${rr.wald ? `; Wald (Poisson, log scale) ${irf(rr.wald.lo)} to ${irf(rr.wald.hi)}` : "; no Wald interval (no events in group 1)"}.`,
     `Exact two-sided test of a rate ratio of 1: ${pText(rr.pExact)}.`,
-    `Rate difference ${rate(rr.rd.est)} ${perText} (95% CI ${fxCi(rr.rd.lo * per, rr.rd.hi * per)}, Wald).`,
+    `Rate difference ${rdf(rr.rd.est)} ${perText} (95% CI ${rdf(rr.rd.lo)} to ${rdf(rr.rd.hi)}, Wald).`,
   ];
   const rows = [
     ["Measure", "Estimate", "95% CI", "Method"],
     [`Rate, group 1 (${perText})`, rate(rr.r1), "", ""],
     [`Rate, group 2 (${perText})`, rate(rr.r0), "", ""],
-    ["Rate ratio", fx(rr.irr), fxCi(rr.exact.lo, rr.exact.hi), "exact"],
-    ...(rr.wald ? [["Rate ratio", fx(rr.irr), fxCi(rr.wald.lo, rr.wald.hi), "Wald, log scale"]] : []),
-    [`Rate difference (${perText})`, rate(rr.rd.est), fxCi(rr.rd.lo * per, rr.rd.hi * per), "Wald"],
+    ["Rate ratio", irf(rr.irr), `${irf(rr.exact.lo)} to ${irf(rr.exact.hi)}`, "exact"],
+    ...(rr.wald ? [["Rate ratio", irf(rr.irr), `${irf(rr.wald.lo)} to ${irf(rr.wald.hi)}`, "Wald, log scale"]] : []),
+    [`Rate difference (${perText})`, rdf(rr.rd.est), `${rdf(rr.rd.lo)} to ${rdf(rr.rd.hi)}`, "Wald"],
     ["Test of rate ratio = 1", "", pText(rr.pExact), "exact binomial"],
   ];
   const v = verdict(rr.pExact);
   const tail = v === "clear" ? `is unlikely to be chance (${pText(rr.pExact)})` : v === "borderline" ? `gives ${pText(rr.pExact)}, ${BOUNDARY_CLAUSE}` : `could be chance (${pText(rr.pExact)})`;
   const reading = fitReading(
-    `Events occur at ${rate(rr.r1)} ${perText} in group 1 against ${rate(rr.r0)} in group 2, a rate ratio of ${fx(rr.irr)} (exact 95% CI ${fxCi(rr.exact.lo, rr.exact.hi)}); the difference ${tail}.`,
-    `Rate ratio ${fx(rr.irr)} (exact 95% CI ${fxCi(rr.exact.lo, rr.exact.hi)}); the difference ${tail}.`,
+    `Events occur at ${rate(rr.r1)} ${perText} in group 1 against ${rate(rr.r0)} in group 2, a rate ratio of ${irf(rr.irr)} (exact 95% CI ${irf(rr.exact.lo)} to ${irf(rr.exact.hi)}); the difference ${tail}.`,
+    `Rate ratio ${irf(rr.irr)} (exact 95% CI ${irf(rr.exact.lo)} to ${irf(rr.exact.hi)}); the difference ${tail}.`,
   );
   const forest = [{ label: "Exact", estimate: rr.irr, low: rr.exact.lo, high: rr.exact.hi }];
   if (rr.wald) forest.push({ label: "Wald", estimate: rr.irr, low: rr.wald.lo, high: rr.wald.hi });
@@ -573,12 +677,16 @@ function kappaCalc(read: Read): StatOutput {
   const cats = r("categories").trim() ? r("categories").split(/[,;]/).map((s) => s.trim()).filter(Boolean) : [];
   const names = Array.from({ length: fit.k }, (_, i) => cats[i] ?? `Category ${i + 1}`);
   const wName = weight === "none" ? "unweighted" : `${weight}-weighted`;
+  // Words only when the whole interval sits in one band (review M4).
+  const kBand = fit.se > 0 ? bandOf(fit.kappa, fit.lo, fit.hi, landisKoch) : null;
   const lines = [
     `Cohen's kappa (${wName}), ${fit.k} categories, ${intText(fit.n)} subjects rated by both raters (rows: rater A; columns: rater B).`,
     `Observed ${weight === "none" ? "" : "weighted "}agreement ${pct(fit.po)}; expected by chance ${pct(fit.pe)}.`,
-    `κ = ${fx(fit.kappa, 3)}, SE ${fx(fit.se, 4)}, 95% CI ${fxCi(fit.lo, fit.hi, 3)} (Fleiss, Cohen & Everitt 1969 large-sample SE).`,
+    fit.se > 0
+      ? `κ = ${fx(fit.kappa, 3)}, SE ${fx(fit.se, 4)}, 95% CI ${fxCi(fit.lo, fit.hi, 3)} (Fleiss, Cohen & Everitt 1969 large-sample SE${fit.clipped ? "; the interval is clipped to κ's range of −1 to 1" : ""}).`
+      : `κ = ${fx(fit.kappa, 3)}: the large-sample SE is 0 here (${fit.kappa >= 1 - 1e-12 ? "perfect agreement" : "no spread to estimate it from"}), so no interval is given; with ${intText(fit.n)} subjects that is not evidence of a precise κ.`,
     `Test of κ = 0: z = ${fx(fit.z, 2)} (null SE ${fx(fit.se0, 4)}), ${pText(fit.p)}.`,
-    `Landis & Koch (1977) would call this ${landisKoch(fit.kappa)} agreement.`,
+    kBand ? `Landis & Koch (1977) would call this ${kBand} agreement.` : `The interval spans more than one Landis & Koch (1977) band, so it is too wide to classify.`,
   ];
   if (weight !== "none" && fit.k === 2) lines.push("With two categories, weighted and unweighted kappa are the same.");
   const unused = g.map((row, i) => row.reduce((s, x) => s + x, 0) + g.reduce((s, rw) => s + rw[i], 0)).map((s, i) => (s === 0 ? names[i] : "")).filter(Boolean);
@@ -587,7 +695,7 @@ function kappaCalc(read: Read): StatOutput {
     ["Measure", "Value", "95% CI"],
     ["Observed agreement", pct(fit.po), ""],
     ["Chance agreement", pct(fit.pe), ""],
-    [`κ (${wName})`, fx(fit.kappa, 3), fxCi(fit.lo, fit.hi, 3)],
+    [`κ (${wName})`, fx(fit.kappa, 3), fit.se > 0 ? fxCi(fit.lo, fit.hi, 3) : "no interval (SE 0)"],
     ["Test of κ = 0", `z = ${fx(fit.z, 2)}`, pText(fit.p)],
   ];
   const svg = groupedBarSvg(
@@ -599,7 +707,7 @@ function kappaCalc(read: Read): StatOutput {
     { title: "Agreement by category (subjects both raters placed there)", ylabel: "Subjects" },
   );
   const reading = fitReading(
-    `The raters agree on ${pct(fit.po)} of subjects against ${pct(fit.pe)} expected by chance: κ = ${fx(fit.kappa, 3)} (95% CI ${fxCi(fit.lo, fit.hi, 3)}), ${landisKoch(fit.kappa)} agreement on the Landis–Koch scale.`,
+    `The raters agree on ${pct(fit.po)} of subjects against ${pct(fit.pe)} expected by chance: κ = ${fx(fit.kappa, 3)}${fit.se > 0 ? ` (95% CI ${fxCi(fit.lo, fit.hi, 3)})` : ""}, ${kBand ? `${kBand} agreement on the Landis–Koch scale` : fit.se > 0 ? "an interval too wide to classify on the Landis–Koch scale" : "with no interval to judge its precision"}.`,
   );
   return { text: lines.join("\n"), reading, svg, tables: [{ label: "Cohen's kappa", rows }] };
 }
@@ -639,7 +747,10 @@ function blandCalc(read: Read): StatOutput {
   }
   const ba = blandAltman(A, B, mult);
   if (isErr(ba)) return refuse(ba.error);
-  const scale = Math.max(...[ba.sd, Math.abs(ba.bias)].filter((v) => v > 0), 1e-12);
+  // Decimals from the spread or the bias; when both are 0 (identical columns) two decimals (review MINOR: it printed
+  // "0.000000").
+  const pos = [ba.sd, Math.abs(ba.bias)].filter((v) => v > 1e-12 * Math.max(1, ...ba.means.map(Math.abs).slice(0, 1)));
+  const scale = pos.length ? Math.max(...pos) : 1;
   const d = scale >= 100 ? 1 : scale >= 1 ? 2 : Math.min(6, 2 + Math.ceil(-Math.log10(scale)));
   const f = (v: number): string => fx(v, d);
   const u = units ? ` ${units}` : "";
@@ -650,7 +761,9 @@ function blandCalc(read: Read): StatOutput {
     `Bias (mean difference) ${f(ba.bias)}${u}, 95% CI ${f(ba.biasCi[0])} to ${f(ba.biasCi[1])}; SD of the differences ${f(ba.sd)}${u}.`,
     `95% limits of agreement (bias ± ${mult === 2 ? "2" : "1.96"}·SD): ${f(ba.lower)} to ${f(ba.upper)}${u}.`,
     `95% CI of the lower limit ${f(ba.lowerCi[0])} to ${f(ba.lowerCi[1])}; of the upper limit ${f(ba.upperCi[0])} to ${f(ba.upperCi[1])} (Bland & Altman 1999: SE ≈ SD·√(3/n), t on ${ba.n - 1} df).`,
-    `Proportional bias: slope of the difference on the mean ${fx(ba.slope, 4)}, ${Number.isFinite(ba.slopeP) ? pText(ba.slopeP) : "not testable"}.`,
+    ba.constantDiffs
+      ? "Proportional bias: not testable, because every difference is the same (constant differences carry no slope to test)."
+      : `Proportional bias: slope of the difference on the mean ${fx(ba.slope, 4)}, ${Number.isFinite(ba.slopeP) ? pText(ba.slopeP) : "not testable"}.`,
     "Whether the limits are narrow enough is a clinical judgement made before the study, not a statistical one.",
   ];
   const rows = [
@@ -659,12 +772,15 @@ function blandCalc(read: Read): StatOutput {
     ["SD of differences", f(ba.sd), ""],
     ["Lower limit of agreement", f(ba.lower), `${f(ba.lowerCi[0])} to ${f(ba.lowerCi[1])}`],
     ["Upper limit of agreement", f(ba.upper), `${f(ba.upperCi[0])} to ${f(ba.upperCi[1])}`],
-    ["Proportional bias (slope)", fx(ba.slope, 4), Number.isFinite(ba.slopeP) ? pText(ba.slopeP) : ""],
+    ["Proportional bias (slope)", ba.constantDiffs ? "not testable" : fx(ba.slope, 4), ba.constantDiffs ? "constant differences" : Number.isFinite(ba.slopeP) ? pText(ba.slopeP) : ""],
   ];
-  const sideword = ba.bias < 0 ? `lower than ${nB}` : ba.bias > 0 ? `higher than ${nB}` : `the same as ${nB}`;
+  const zeroBias = f(ba.bias) === f(0) || f(ba.bias) === `−${f(0)}`;
+  const sideword = ba.bias < 0 ? `lower than ${nB}` : `higher than ${nB}`;
   const pv = Number.isFinite(ba.slopeP) ? verdict(ba.slopeP) : "none";
   const prop =
-    !Number.isFinite(ba.slopeP)
+    ba.constantDiffs
+      ? ", and every difference is the same, so proportional bias cannot be tested"
+      : !Number.isFinite(ba.slopeP)
       ? ""
       : pv === "clear"
         ? `, and the difference changes with the size of the measurement (proportional bias, ${pText(ba.slopeP)})`
@@ -672,7 +788,7 @@ function blandCalc(read: Read): StatOutput {
           ? `; the proportional-bias test gives ${pText(ba.slopeP)}, ${BOUNDARY_CLAUSE}`
           : `, with no evidence of proportional bias (${pText(ba.slopeP)})`;
   const reading = fitReading(
-    `${nA} reads on average ${f(Math.abs(ba.bias))}${u} ${sideword} (bias ${f(ba.bias)}, 95% CI ${f(ba.biasCi[0])} to ${f(ba.biasCi[1])}); 95% of differences are expected between ${f(ba.lower)} and ${f(ba.upper)}${u}${prop}.`,
+    `${zeroBias ? `${nA} and ${nB} agree on average (bias ${f(0)}${u}` : `${nA} reads on average ${f(Math.abs(ba.bias))}${u} ${sideword} (bias ${f(ba.bias)}`}, 95% CI ${f(ba.biasCi[0])} to ${f(ba.biasCi[1])}); 95% of differences are expected between ${f(ba.lower)} and ${f(ba.upper)}${u}${prop}.`,
     `Bias ${f(ba.bias)}${u}; 95% of differences lie between ${f(ba.lower)} and ${f(ba.upper)}${u}${prop}.`,
   );
   const svg = blandAltmanSvg(ba.means, ba.diffs, ba.bias, ba.lower, ba.upper, f, units);
@@ -707,6 +823,7 @@ function iccCalc(read: Read): StatOutput {
   if (isErr(fit)) return refuse(fit.error);
   const want = ICC_FORMS.includes(r("form")) ? r("form") : "2,1";
   const head = fit.rows.find((x) => x.form === `ICC(${want})`)!;
+  const iBand = bandOf(head.value, head.lo, head.hi, kooLi);
   const lines = [
     `Intraclass correlation, ${fit.n} targets × ${fit.k} raters${dropped ? ` (${dropped} target${dropped === 1 ? "" : "s"} with a missing rating left out)` : ""}.`,
     `Mean squares: targets ${fx(fit.msr, 4)}, raters ${fx(fit.msc, 4)}, residual ${fx(fit.mse, 4)}, within targets ${fx(fit.msw, 4)}.`,
@@ -718,7 +835,7 @@ function iccCalc(read: Read): StatOutput {
     ...fit.rows.map((x) => [x.form, fx(x.value, 3), fxCi(x.lo, x.hi, 3), `F(${x.df1}, ${x.df2}) = ${fx(x.F, 2)}`, x.p < 0.001 ? P_BELOW : fmtP(x.p)]),
   ];
   const reading = fitReading(
-    `${head.form} = ${fx(head.value, 3)} (95% CI ${fxCi(head.lo, head.hi, 3)}): ${kooLi(head.value)} reliability on the Koo & Li scale for ${head.description}.`,
+    `${head.form} = ${fx(head.value, 3)} (95% CI ${fxCi(head.lo, head.hi, 3)}): ${iBand ? `${iBand} reliability on the Koo & Li scale` : "an interval too wide to classify on the Koo & Li scale"} for ${head.description}.`,
   );
   const svg = iccProfileSvg(complete, t.names);
   return { text: lines.join("\n"), reading, svg, tables: [{ label: "Intraclass correlation", rows }] };
@@ -754,6 +871,8 @@ interface MetaInput {
   ratio: boolean;
   measureName: string;
   counts: CountStudy[] | null;
+  /** Every study with valid arms, for Mantel–Haenszel: built BEFORE the inverse-variance skip (review B5). */
+  mhCounts: CountStudy[] | null;
   measure: CountMeasure | null;
   notes: string[];
 }
@@ -782,6 +901,7 @@ function readMetaInput(r: Read): MetaInput | { error: string } {
   if (input === "counts") {
     const m: CountMeasure = r("measure") === "rr" ? "rr" : r("measure") === "rd" ? "rd" : "or";
     const counts: CountStudy[] = [];
+    const mhCounts: CountStudy[] = [];
     let corrected = 0;
     for (const [i, row] of rows.entries()) {
       const vals: number[] = [];
@@ -795,9 +915,10 @@ function readMetaInput(r: Read): MetaInput | { error: string } {
       if (e1 > n1 || e0 > n0) return { error: `Data, row ${i + 1}: more events than subjects in an arm.` };
       if (n1 === 0 || n0 === 0) return { error: `Data, row ${i + 1}: an arm with no subjects.` };
       const s: CountStudy = { name: row[0] || `Study ${i + 1}`, e1, n1, e0, n0 };
+      mhCounts.push(s);
       const ef = countEffect(s, m);
       if ("skip" in ef) {
-        notes.push(`Left out: ${ef.skip}.`);
+        notes.push(`Left out of the inverse-variance analysis: ${ef.skip}${m === "rd" && r("fixed") === "mh" ? " (Mantel–Haenszel keeps it: its weight does not depend on the study's variance)" : ""}.`);
         continue;
       }
       if (ef.corrected) corrected++;
@@ -808,7 +929,7 @@ function readMetaInput(r: Read): MetaInput | { error: string } {
     }
     if (corrected) notes.push(`${corrected} stud${corrected === 1 ? "y has" : "ies have"} a zero cell: 0.5 added to every cell of ${corrected === 1 ? "it" : "each"} for the inverse-variance estimate (Haldane–Anscombe); Mantel–Haenszel uses the counts as entered.`);
     const mName = m === "or" ? "odds ratio" : m === "rr" ? "risk ratio" : "risk difference";
-    return { names, y, v, ratio: m !== "rd", measureName: mName, counts, measure: m, notes };
+    return { names, y, v, ratio: m !== "rd", measureName: mName, counts, mhCounts, measure: m, notes };
   }
   const ratio = r("scale") === "ratio";
   // Five columns of whole numbers is a counts table read with the wrong Input: said, not pooled as nonsense.
@@ -846,7 +967,7 @@ function readMetaInput(r: Read): MetaInput | { error: string } {
     v.push(se * se);
   }
   if (input === "ci") notes.push(`Standard errors recovered from the 95% limits${ratio ? " on the log scale" : ""}: SE = (upper − lower)/(2 × 1.96).`);
-  return { names, y, v, ratio, measureName: ratio ? "ratio" : "effect", counts: null, measure: null, notes };
+  return { names, y, v, ratio, measureName: ratio ? "ratio" : "effect", counts: null, mhCounts: null, measure: null, notes };
 }
 
 const tr = (ratio: boolean) => (x: number): number => (ratio ? Math.exp(x) : x);
@@ -858,8 +979,8 @@ function metaCalc(read: Read): StatOutput {
   const tauMethod = r("tau") === "reml" ? "reml" : "dl";
   let fixedOverride: Pooled | undefined;
   let fixedName = "inverse variance";
-  if (mi.counts && mi.measure && r("fixed") === "mh") {
-    const mh = mantelHaenszel(mi.counts, mi.measure);
+  if (mi.mhCounts && mi.measure && r("fixed") === "mh") {
+    const mh = mantelHaenszel(mi.mhCounts, mi.measure);
     if (isErr(mh)) return refuse(mh.error);
     fixedOverride = mh;
     fixedName = "Mantel–Haenszel";
@@ -868,7 +989,8 @@ function metaCalc(read: Read): StatOutput {
   if (isErr(fit)) return refuse(fit.error);
   const T = tr(mi.ratio);
   const d = mi.ratio ? 2 : 3;
-  const f = (x: number): string => fx(T(x), d);
+  const isRd = mi.measure === "rd";
+  const f = (x: number): string => (isRd ? pct(x) : fx(T(x), d));
   const ci = (lo: number, hi: number): string => `${f(lo)} to ${f(hi)}`;
   const tauName = tauMethod === "reml" ? "REML" : "DerSimonian–Laird";
   const scaleNote = mi.ratio ? " (pooled on the log scale, shown as ratios)" : "";
@@ -950,7 +1072,7 @@ function eggerCalc(read: Read): StatOutput {
       ? `Egger's test finds funnel-plot asymmetry (intercept ${fx(eg.intercept, 2)}, ${pText(eg.p)}): small studies report different effects from large ones, which can reflect publication bias or real differences between them.`
       : v === "borderline"
         ? `Egger's test gives intercept ${fx(eg.intercept, 2)} with ${pText(eg.p)}, ${BOUNDARY_CLAUSE} for funnel-plot asymmetry.`
-        : `Egger's test finds no clear funnel-plot asymmetry (intercept ${fx(eg.intercept, 2)}, ${pText(eg.p)}), though with ${eg.k} studies it has limited power to detect it.`,
+        : `Egger's test finds no clear funnel-plot asymmetry (intercept ${fx(eg.intercept, 2)}, ${pText(eg.p)}), ${eg.k < 30 ? `though with ${eg.k} studies it has limited power to detect it` : `with ${eg.k} studies, enough to detect marked asymmetry`}.`,
   );
   const xl = mi.ratio ? `${mi.measureName === "ratio" ? "Ratio" : mi.measureName[0].toUpperCase() + mi.measureName.slice(1)} (log scale)` : "Effect";
   const svg = funnelSvg(mi.y, mi.v.map(Math.sqrt), fit.fixed.est, mi.ratio, xl);

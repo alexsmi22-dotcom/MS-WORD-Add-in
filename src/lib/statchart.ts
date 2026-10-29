@@ -868,7 +868,10 @@ function forestPlotLogSvg(
       labelled = labelled.filter((_, i) => i % 2 === parity);
     }
   }
-  const xText = `${opts.xlabel ?? "ratio"} (log scale)`;
+  // " (log scale)" is appended only when the caller's title does not already say it (v2.206.0 review: the clinical
+  // forests printed "(log scale) (log scale)"). No earlier caller's title says it, so their figures are unchanged.
+  const xBase = opts.xlabel ?? "ratio";
+  const xText = /log scale/i.test(xBase) ? xBase : `${xBase} (log scale)`;
   const xLines = titleLinesFor(xText, 2 * Math.min(ML + pw / 2, W - ML - pw / 2) - 4, 10);
   H += 13 * Math.max(0, xLines.length - 1);
 

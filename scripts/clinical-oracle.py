@@ -58,16 +58,19 @@ def diag(tp, fp, fn, tn):
             return [x / n, float(lo), float(hi)]
         r[key] = {"sens": pc(tp, tp + fn), "spec": pc(tn, fp + tn), "ppv": pc(tp, tp + fp), "npv": pc(tn, fn + tn), "acc": pc(tp + tn, tp + fp + fn + tn)}
     zero = min(tp, fp, fn, tn) == 0
-    k = 0.5 if zero else 0.0
-    a, b, c, d = tp + k, fp + k, fn + k, tn + k
-    se, sp = a / (a + c), d / (b + d)
-    lrp = se / (1 - sp)
+    # Haldane-Anscombe per ratio, only where the ratio is 0, infinite or 0/0 (review B4): LR+ needs TP, FP > 0;
+    # LR- needs FN, TN > 0; the DOR needs every cell > 0.
+    kp = 0.5 if (tp == 0 or fp == 0) else 0.0
+    kn = 0.5 if (fn == 0 or tn == 0) else 0.0
+    a, b, c, d = tp + kp, fp + kp, fn + kp, tn + kp
+    lrp = (a / (a + c)) / (b / (b + d))
     s = math.sqrt(1 / a - 1 / (a + c) + 1 / b - 1 / (b + d))
-    lrn = (1 - se) / sp
+    a, b, c, d = tp + kn, fp + kn, fn + kn, tn + kn
+    lrn = (c / (a + c)) / (d / (b + d))
     s2 = math.sqrt(1 / c - 1 / (a + c) + 1 / d - 1 / (b + d))
     r["lrPos"] = [lrp, lrp * math.exp(-Z * s), lrp * math.exp(Z * s)]
     r["lrNeg"] = [lrn, lrn * math.exp(-Z * s2), lrn * math.exp(Z * s2)]
-    t = Table2x2(np.array([[tp, fp], [fn, tn]], dtype=float) + (0.5 if zero else 0.0))  # Haldane-Anscombe: 0.5 to EVERY cell (statsmodels shift_zeros replaces only the zeros)
+    t = Table2x2(np.array([[tp, fp], [fn, tn]], dtype=float) + (0.5 if zero else 0.0), shift_zeros=False)  # Haldane-Anscombe: 0.5 to EVERY cell (statsmodels shift_zeros replaces only the zeros, and is on by default)
     lo, hi = t.oddsratio_confint()
     r["dor"] = [float(t.oddsratio), float(lo), float(hi)]
     r["haldane"] = zero
@@ -83,7 +86,7 @@ def diag(tp, fp, fn, tn):
         r["at10"] = {"ppv": [ppv, ex(lp - Z * math.sqrt(vp)), ex(lp + Z * math.sqrt(vp))], "npv": [npv, ex(ln_ - Z * math.sqrt(vn)), ex(ln_ + Z * math.sqrt(vn))]}
     return r
 
-OUT["diag"] = {"liver": diag(231, 32, 27, 54), "default": diag(90, 30, 10, 170), "fn0": diag(50, 10, 0, 40)}
+OUT["diag"] = {"liver": diag(231, 32, 27, 54), "default": diag(90, 30, 10, 170), "fn0": diag(50, 10, 0, 40), "fp1fn0": diag(50, 1, 0, 60)}
 
 # Buderer: Se 0.90, Sp 0.85, d 0.05, prevalence 0.20
 def buderer(se, sp, prev, d):
@@ -134,9 +137,12 @@ OUT["roc"] = {"hanleyMcNeil": roc_case(hm_y, hm_s), "paired": roc_case(yy, s1, s
 # ---------------------------------------------------------------- 2x2 epidemiology
 def epi(a, b, c, d):
     zero = min(a, b, c, d) == 0
-    t = Table2x2(np.array([[a, b], [c, d]], dtype=float) + (0.5 if zero else 0.0))  # Haldane-Anscombe on every cell
-    rr = [float(t.riskratio), *map(float, t.riskratio_confint())]
-    orr = [float(t.oddsratio), *map(float, t.oddsratio_confint())]
+    # Haldane-Anscombe on every cell, per ratio, only where that ratio is 0 or infinite (review B4): the RR when a or c
+    # is 0, the OR when any cell is 0.
+    trr = Table2x2(np.array([[a, b], [c, d]], dtype=float) + (0.5 if (a == 0 or c == 0) else 0.0), shift_zeros=False)
+    tor = Table2x2(np.array([[a, b], [c, d]], dtype=float) + (0.5 if zero else 0.0), shift_zeros=False)
+    rr = [float(trr.riskratio), *map(float, trr.riskratio_confint())]
+    orr = [float(tor.oddsratio), *map(float, tor.oddsratio_confint())]
     rd = {}
     for m in ("wald", "newcomb"):
         lo, hi = confint_proportions_2indep(a, a + b, c, c + d, method=m, compare="diff")
@@ -145,7 +151,7 @@ def epi(a, b, c, d):
     _, pf = stats.fisher_exact([[a, b], [c, d]])
     return {"input": [a, b, c, d], "rr": rr, "or": orr, "rd": rd, "chi2": float(chi2), "p": float(p), "pFisher": float(pf), "haldane": zero}
 
-OUT["epi"] = {"default": epi(15, 85, 30, 70), "zero": epi(0, 20, 5, 15), "small": epi(3, 7, 9, 1)}
+OUT["epi"] = {"default": epi(15, 85, 30, 70), "zero": epi(0, 20, 5, 15), "small": epi(3, 7, 9, 1), "bZero": epi(10, 0, 5, 5)}
 
 def irr(a, t1, c, t0):
     bt = stats.binomtest(a, a + c, t1 / (t1 + t0))
@@ -290,6 +296,20 @@ OUT["meta"] = {"bcg": [list(r) for r in bcg], "rr": meta_block(yrr, vrr), "or": 
                "mhOR": [math.log(st.oddsratio_pooled), float(st.logodds_pooled_se)],
                "mhRR": [math.log(R / S), math.sqrt(P / (R * S))], "mhRD": [num / Wd, math.sqrt(vnum / Wd ** 2)],
                "eggerRR": [float(ols.params[0]), float(ols.bse[0]), float(ols.pvalues[0])]}
+# Review B5: MH risk difference with an all-or-none study and a double-zero study, every study kept
+# (Greenland-Robins 1985; the Cochrane Handbook formulas).
+def mh_rd(rows):
+    W = num = vn = 0.0
+    for a, n1, c, n0 in rows:
+        b, d, n = n1 - a, n0 - c, n1 + n0
+        w = n1 * n0 / n
+        W += w; num += w * (a / n1 - c / n0); vn += (a * b * n0 ** 3 + c * d * n1 ** 3) / (n1 * n0 * n * n)
+    return [num / W, math.sqrt(vn / W ** 2)]
+rd4 = [(3, 20, 8, 20), (5, 30, 9, 30), (10, 10, 0, 10), (0, 15, 0, 15)]
+OUT["mhRdAllOrNone"] = {"studies": [list(x) for x in rd4], "mh": mh_rd(rd4)}
+# Review B1: the exact binomial test at large counts (the TypeScript sums outward from the mode).
+OUT["binomLarge"] = [{"x": x, "n": n, "p0": p0, "p": float(stats.binomtest(x, n, p0).pvalue)} for (x, n, p0) in
+                     [(5000, 10000, 0.5), (5100, 10000, 0.5), (4930, 10000, 0.5), (41, 56, 28010 / 47027), (500300, 1000000, 0.5), (12, 400, 0.05)]]
 # tau^2 = 0 case: three homogeneous studies (effect, se)
 y0 = np.array([0.10, 0.12, 0.11]); v0 = np.array([0.04, 0.05, 0.03]) ** 2
 r0 = combine_effects(y0, v0, method_re="dl")

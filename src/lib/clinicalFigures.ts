@@ -72,9 +72,24 @@ export function faganSvg(pre: number, lines: FaganLine[], title = "Fagan nomogra
   const xM = W * 0.5;
   const xR = W * 0.8;
   const clampP = (p: number): number => Math.min(0.999, Math.max(0.001, p));
-  const clampLr = (v: number): number => Math.min(1000, Math.max(0.001, v));
-  const clamped = !(pre >= 0.001 && pre <= 0.999) || lines.some((l) => l.lr !== clampLr(l.lr) || l.post !== clampP(l.post));
+  // Review M9: each line goes from the pre-test point THROUGH ITS OWN LR on the middle scale and is clipped at the
+  // frame when the post-test probability is off the scale (it used to be bent to the scale end, missing its LR). An LR
+  // that is 0, unbounded or 0/0 has no line; the key says so.
+  const drawable = (l: FaganLine): boolean => Number.isFinite(l.lr) && l.lr > 0;
+  const preOff = !(pre >= 0.001 && pre <= 0.999);
   const yPre = yOf(-logit(clampP(pre)));
+  const uPre = -(yPre - top) / (bot - top) * span + logit(0.999); // the drawn pre-test point, as −logit
+  const ends = lines.map((l) => {
+    if (!drawable(l)) return null;
+    const u2 = -uPre + Math.log(l.lr); // logit(post) through the drawn pre-test point
+    const y2 = yOf(u2);
+    if (y2 >= top && y2 <= bot) return { x2: xR, y2, onScale: true };
+    const yEdge = y2 < top ? top : bot;
+    const x2 = xL + ((xR - xL) * (yEdge - yPre)) / (y2 - yPre);
+    return { x2, y2: yEdge, onScale: false };
+  });
+  const clamped = preOff || ends.some((e) => e !== null && !e.onScale);
+  const undrawn = lines.some((l) => !drawable(l));
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" data-chart-kind="nomogram">`,
     `<rect width="${W}" height="${H}" fill="#ffffff"/>`,
@@ -88,15 +103,15 @@ export function faganSvg(pre: number, lines: FaganLine[], title = "Fagan nomogra
   head(xR, "Post-test %");
   for (const x of [xL, xM, xR]) parts.push(`<line x1="${x.toFixed(1)}" y1="${top}" x2="${x.toFixed(1)}" y2="${bot.toFixed(1)}" stroke="${INK}" stroke-width="1"/>`);
   // The lines, drawn first so the tick marks sit on top; their y along the canvas, for keeping middle labels clear.
-  const segs = lines.map((l) => ({ y1: yPre, y2: yOf(logit(clampP(l.post))) }));
-  const lineYAt = (s: { y1: number; y2: number }, x: number): number => s.y1 + ((s.y2 - s.y1) * (x - xL)) / (xR - xL);
-  lines.forEach((l, i) => {
-    const s = segs[i];
+  const segs = ends.filter((e): e is { x2: number; y2: number; onScale: boolean } => e !== null).map((e) => ({ x2: e.x2, y1: yPre, y2: e.y2 }));
+  const lineYAt = (s: { x2: number; y1: number; y2: number }, x: number): number =>
+    x > s.x2 + 0.5 ? Number.NaN : s.y1 + ((s.y2 - s.y1) * (x - xL)) / (s.x2 - xL);
+  ends.forEach((e, i) => {
+    if (!e) return;
     const col = bw ? "#000000" : i === 0 ? BLUE : RED;
     const dash = bw && i > 0 ? ` stroke-dasharray="6 4"` : "";
-    parts.push(`<line x1="${xL.toFixed(1)}" y1="${s.y1.toFixed(1)}" x2="${xR.toFixed(1)}" y2="${s.y2.toFixed(1)}" stroke="${col}" stroke-width="1.6"${dash}/>`);
-    parts.push(`<circle cx="${xR.toFixed(1)}" cy="${s.y2.toFixed(1)}" r="3" fill="${col}"/>`);
-    void l;
+    parts.push(`<line x1="${xL.toFixed(1)}" y1="${yPre.toFixed(1)}" x2="${e.x2.toFixed(1)}" y2="${e.y2.toFixed(1)}" stroke="${col}" stroke-width="1.6"${dash}/>`);
+    if (e.onScale) parts.push(`<circle cx="${xR.toFixed(1)}" cy="${e.y2.toFixed(1)}" r="3" fill="${col}"/>`);
   });
   parts.push(`<circle cx="${xL.toFixed(1)}" cy="${yPre.toFixed(1)}" r="3" fill="${INK}"/>`);
   const tick = (x: number, y: number, side: -1 | 1, text: string): void => {
@@ -116,7 +131,10 @@ export function faganSvg(pre: number, lines: FaganLine[], title = "Fagan nomogra
     const struck = segs.some((s) => {
       const a = lineYAt(s, x0);
       const b = lineYAt(s, x1);
-      return Math.min(a, b) - 6 < y + 4 && Math.max(a, b) + 6 > y - 8;
+      if (Number.isNaN(a) && Number.isNaN(b)) return false;
+      const lo = Math.min(...[a, b].filter((v) => !Number.isNaN(v)));
+      const hi = Math.max(...[a, b].filter((v) => !Number.isNaN(v)));
+      return lo - 6 < y + 4 && hi + 6 > y - 8;
     });
     if (struck) {
       parts.push(`<line x1="${xM.toFixed(1)}" y1="${y.toFixed(1)}" x2="${(xM + 4).toFixed(1)}" y2="${y.toFixed(1)}" stroke="${INK}" stroke-width="1"/>`);
@@ -132,9 +150,10 @@ export function faganSvg(pre: number, lines: FaganLine[], title = "Fagan nomogra
     parts.push(`<line x1="${(W * 0.04).toFixed(1)}" y1="${(y - 3.5).toFixed(1)}" x2="${(W * 0.04 + 18).toFixed(1)}" y2="${(y - 3.5).toFixed(1)}" stroke="${col}" stroke-width="1.6"${dash}/>`);
     parts.push(`<text x="${(W * 0.04 + 23).toFixed(1)}" y="${y.toFixed(1)}" font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(l.label)}</text>`);
   });
-  if (clamped) {
+  const note = undrawn ? "An unbounded or undefined LR has no line." : clamped ? (preOff ? "Off-scale values sit at the ends." : "A line leaving the frame is off the scale.") : "";
+  if (note) {
     parts.push(
-      `<text x="${(W / 2).toFixed(1)}" y="${(H - 4).toFixed(1)}" text-anchor="middle" font-family="Segoe UI, Arial" font-size="9" fill="${GREY}">Off-scale values sit at the ends.</text>`,
+      `<text x="${(W / 2).toFixed(1)}" y="${(H - 4).toFixed(1)}" text-anchor="middle" font-family="Segoe UI, Arial" font-size="9" fill="${GREY}">${esc(note)}</text>`,
     );
   }
   parts.push("</svg>");
@@ -231,14 +250,9 @@ export function funnelSvg(y: number[], se: number[], mu: number, ratio: boolean,
   const tr = (v: number): number => (ratio ? Math.exp(v) : v);
   let maxP = 0;
   for (const s of se) if (1 / s > maxP) maxP = 1 / s;
-  const precs = Array.from({ length: 41 }, (_, i) => (maxP * 1.05 * (i + 1)) / 41);
-  const series: Series[] = [
-    { type: "line", points: precs.map((p) => ({ x: tr(mu - 1.959963984540054 / p), y: p })), color: "#9ca3af", label: "Pseudo 95% limits" },
-    { type: "line", points: precs.map((p) => ({ x: tr(mu + 1.959963984540054 / p), y: p })), color: "#9ca3af" },
-    { type: "line", points: [{ x: tr(mu), y: 0 }, { x: tr(mu), y: maxP * 1.05 }], color: INK, label: `Fixed-effect estimate ${fmtFixed(tr(mu), 2)}` },
-    { type: "scatter", points: y.map((v, i) => ({ x: tr(v), y: 1 / se[i] })), color: BLUE, label: "Studies" },
-  ];
-  // The pseudo limits run off to the sides near zero precision: the x axis is held to the studies' own spread.
+  // The pseudo limits run off to the sides near zero precision: the x axis is held to the studies' own spread, and
+  // each limit curve starts where it enters that range (review MINOR: the curve's own off-axis points were counted in
+  // the figure's "points outside the axis limits" note, as if studies were missing).
   let lo = Infinity;
   let hi = -Infinity;
   for (const v of y) {
@@ -246,6 +260,21 @@ export function funnelSvg(y: number[], se: number[], mu: number, ratio: boolean,
     if (v > hi) hi = v;
   }
   const pad = Math.max(0.1, (hi - lo) * 0.25);
+  const pEnd = maxP * 1.05;
+  const limitCurve = (side: -1 | 1): { x: number; y: number }[] => {
+    const edge = side < 0 ? lo - pad : hi + pad;
+    const dist = side * (edge - mu);
+    if (!(dist > 0)) return [];
+    const pStart = Math.max(1.959963984540054 / dist, pEnd / 400);
+    if (pStart >= pEnd) return [];
+    return Array.from({ length: 41 }, (_, i) => pStart + ((pEnd - pStart) * i) / 40).map((p) => ({ x: tr(mu + (side * 1.959963984540054) / p), y: p }));
+  };
+  const series: Series[] = [
+    { type: "line", points: limitCurve(-1), color: "#9ca3af", label: "Pseudo 95% limits" },
+    { type: "line", points: limitCurve(1), color: "#9ca3af" },
+    { type: "line", points: [{ x: tr(mu), y: 0 }, { x: tr(mu), y: pEnd }], color: INK, label: `Fixed effect ${fmtFixed(tr(mu), 2)}` },
+    { type: "scatter", points: y.map((v, i) => ({ x: tr(v), y: 1 / se[i] })), color: BLUE, label: "Studies" },
+  ].filter((sr) => sr.points.length > 0) as Series[];
   return buildPlotSvg(series, {
     width: 440,
     height: 320,

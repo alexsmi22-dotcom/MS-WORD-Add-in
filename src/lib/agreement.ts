@@ -32,6 +32,8 @@ export interface KappaFit {
   hi: number;
   z: number;
   p: number;
+  /** True when the Wald interval ran past −1 or 1 and was clipped. */
+  clipped: boolean;
   /** Observed and chance-expected counts on the diagonal, per category. */
   diagObs: number[];
   diagExp: number[];
@@ -90,8 +92,10 @@ export function cohenKappa(table: number[][], weight: KappaWeight): KappaFit | {
     kappa,
     se,
     se0,
-    lo: kappa - Z975 * se,
-    hi: kappa + Z975 * se,
+    // Clipped to κ's range [−1, 1] (review M3: "20 1 / 0 20" gave 0.857 to 1.046); `clipped` says so.
+    lo: Math.max(-1, kappa - Z975 * se),
+    hi: Math.min(1, kappa + Z975 * se),
+    clipped: kappa - Z975 * se < -1 || kappa + Z975 * se > 1,
     z,
     p: Number.isFinite(z) ? 2 * normalCdfPrecise(-Math.abs(z)) : NaN,
     diagObs: table.map((r, i) => r[i]),
@@ -125,6 +129,8 @@ export interface BlandAltman {
   intercept: number;
   slopeSe: number;
   slopeP: number;
+  /** The differences are constant (to rounding): proportional bias cannot be tested. */
+  constantDiffs: boolean;
   t: number;
 }
 
@@ -151,7 +157,14 @@ export function blandAltman(a: number[], b: number[], mult: number): BlandAltman
   let ssr = 0;
   for (let i = 0; i < n; i++) ssr += (diffs[i] - intercept - slope * means[i]) ** 2;
   const slopeSe = sxx > 0 && n > 2 ? Math.sqrt(ssr / (n - 2) / sxx) : NaN;
-  const slopeP = slopeSe > 0 ? tTestP(Math.abs(slope / slopeSe), n - 2) : slopeSe === 0 ? 0 : NaN;
+  // A zero residual SE with a zero slope means the differences are constant (review B3: A = 1..4, B = 2..5 printed
+  // "proportional bias, p < 0.001"): there is nothing to test, so p is not a number and the result says so. A zero
+  // residual SE with a non-zero slope is differences exactly proportional to the mean: p = 0 is the honest answer.
+  let mag = 0;
+  for (let i = 0; i < n; i++) mag = Math.max(mag, Math.abs(means[i]), Math.abs(diffs[i]));
+  // "Constant" to rounding: 1.1 − 2.2, 2.1 − 3.2 … differ in the 16th digit only.
+  const constantDiffs = sd <= 1e-12 * mag;
+  const slopeP = constantDiffs ? NaN : slopeSe > 0 ? tTestP(Math.abs(slope / slopeSe), n - 2) : slopeSe === 0 ? 0 : NaN;
   return {
     n,
     diffs,
@@ -168,6 +181,7 @@ export function blandAltman(a: number[], b: number[], mult: number): BlandAltman
     intercept,
     slopeSe,
     slopeP,
+    constantDiffs,
     t,
   };
 }

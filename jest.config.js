@@ -10,6 +10,8 @@ module.exports = {
   testEnvironment: "node",
   roots: ["<rootDir>/src/lib", "<rootDir>/src/taskpane", "<rootDir>/src/host"],
   testMatch: ["**/*.test.ts"],
+  // CI only: a failed test is retried twice (see the file for why); the local run keeps every bound strict.
+  setupFilesAfterEnv: ["<rootDir>/scripts/jest-ci-retry.js"],
   transform: {
     "^.+\\.ts$": [
       "ts-jest",

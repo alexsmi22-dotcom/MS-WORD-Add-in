@@ -337,6 +337,7 @@ import { KALMAN_CALCS } from "../lib/kalmanCalcs";
 import { QUANTUM_GATES_CALCS } from "../lib/quantumGatesCalcs";
 import { QUANTUM_DIRAC_CALCS } from "../lib/quantumDiracCalcs";
 import { LASER_CALCS } from "../lib/laserCalcs";
+import { ASTRO_CALCS } from "../lib/astroCalcs";
 import { LINK_BUDGET_CALCS } from "../lib/linkBudgetCalcs";
 import { LINEAR_OPTICS_CALCS } from "../lib/linearOpticsCalcs";
 import { SEMICONDUCTOR_CALCS } from "../lib/semiconductorCalcs";
@@ -14341,6 +14342,7 @@ const ENG_GROUP_ORDER = [
   "Chips & semiconductors",
   "Aviation & avionics",
   "Trajectory & orbits",
+  "Astronomy & lunar",
   "Robotics & kinematics",
   "Computation & information",
   "Control systems",
@@ -31465,6 +31467,7 @@ const ENG_CALCS: EngCalc[] = [
   ...AI_COMPUTE_CALCS,
   ...QUANTUM_LINKS_CALCS,
   ...QUANTUM_MECHANICS_CALCS,
+  ...ASTRO_CALCS,
 ];
 
 // Underscore subscripts in every tool's prose, tables, captions and output names typeset (subscriptText.ts); the math

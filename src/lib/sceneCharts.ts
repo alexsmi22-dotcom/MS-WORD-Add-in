@@ -225,7 +225,7 @@ export function bezierChartSvg(input: { P: Vec[]; curve: Vec[]; levels: Vec[][];
   const { P, curve, levels, t, point, tangent, bmin, bmax } = input;
   const is3d = P[0].length === 3;
   const all = [...P.map(xy), ...curve.map(xy), { x: bmin[0], y: bmin[1] }, { x: bmax[0], y: bmax[1] }];
-  const F = equalFrame(all, 3);
+  const F = equalFrame(all, is3d ? 5 : 4);
   const p = frameParts(F, "x", "y");
   // Bounding box.
   const bb = [
@@ -256,8 +256,10 @@ export function bezierChartSvg(input: { P: Vec[]; curve: Vec[]; levels: Vec[][];
   p.push(dotAt(F, xy(point), RED, 3.6));
   p.push(
     ...keyBlock(F, [
-      { t: `Blue: the degree-${P.length - 1} curve C(t); grey dashed: its control polygon P₀ to P${toSub(P.length - 1)}${is3d ? " (drawn in the x–y plane, z not shown)" : ""}.`, fill: BLUE },
-      { t: `Green: de Casteljau's construction at t = ${sig4(t)}; red: C(${sig4(t)}) = (${point.map(sig4).join(", ")}) and its tangent.`, fill: RED },
+      { t: `Blue: the degree-${P.length - 1} curve C(t); grey dashed: its control polygon P₀ to P${toSub(P.length - 1)}.`, fill: BLUE },
+      ...(is3d ? [{ t: "Drawn in the x–y plane; z is not shown." }] : []),
+      { t: `Green: de Casteljau's construction at t = ${sig4(t)}.`, fill: GREEN },
+      { t: `Red: C(${sig4(t)}) = (${point.map(sig4).join(", ")}) and its tangent.`, fill: RED },
       { t: `Orange dashed: the tight bounding box, x ${sig4(bmin[0])} to ${sig4(bmax[0])}, y ${sig4(bmin[1])} to ${sig4(bmax[1])}.`, fill: ORANGE },
     ]),
   );
@@ -322,6 +324,8 @@ export function nurbsChartSvg(input: {
 
 /** Edges drawn at most; problem edges are always drawn. */
 export const WIREFRAME_MAX_EDGES = 6000;
+/** Problem edges drawn at most, per kind (boundary, inconsistent, non-manifold). */
+export const WIREFRAME_MAX_PROBLEM_EDGES = 1500;
 
 /**
  * An orthographic wireframe from a fixed three-quarter view (azimuth −35°, elevation 25°), all edges grey, with the
@@ -357,15 +361,19 @@ export function meshWireframeSvg(input: {
   const seg = (e: [number, number], attrs: string): string => polyline(F, [P[e[0]], P[e[1]]], attrs);
   const drawn = input.edges.slice(0, WIREFRAME_MAX_EDGES);
   p.push(drawn.map((e) => seg(e, `stroke="${GREY}" stroke-width="0.7"`)).join(""));
-  p.push(input.boundary.map((e) => seg(e, `stroke="${ORANGE}" stroke-width="2.2"`)).join(""));
-  p.push(input.inconsistent.map((e) => seg(e, `stroke="${PURPLE}" stroke-width="2.2" stroke-dasharray="4 2"`)).join(""));
-  p.push(input.nonManifold.map((e) => seg(e, `stroke="${RED}" stroke-width="2.6"`)).join(""));
-  const capped = input.edges.length > WIREFRAME_MAX_EDGES ? ` (the first ${WIREFRAME_MAX_EDGES.toLocaleString("en-US")} of ${input.edges.length.toLocaleString("en-US")} drawn)` : "";
+  // Problem edges are drawn over the grey ones, each kind capped too (a triangle soup is all boundary).
+  const cap = (es: Array<[number, number]>): Array<[number, number]> => es.slice(0, WIREFRAME_MAX_PROBLEM_EDGES);
+  p.push(cap(input.boundary).map((e) => seg(e, `stroke="${ORANGE}" stroke-width="2.2"`)).join(""));
+  p.push(cap(input.inconsistent).map((e) => seg(e, `stroke="${PURPLE}" stroke-width="2.2" stroke-dasharray="4 2"`)).join(""));
+  p.push(cap(input.nonManifold).map((e) => seg(e, `stroke="${RED}" stroke-width="2.6"`)).join(""));
+  const g = (n: number): string => n.toLocaleString("en-US");
+  const capped = input.edges.length > WIREFRAME_MAX_EDGES ? ` (the first ${g(WIREFRAME_MAX_EDGES)} drawn)` : "";
+  const over = [input.boundary, input.inconsistent, input.nonManifold].some((es) => es.length > WIREFRAME_MAX_PROBLEM_EDGES);
   p.push(
     ...keyBlock(F, [
-      { t: `Grey: ${input.edges.length.toLocaleString("en-US")} edges${capped}.`, fill: GREY },
-      { t: `Orange: ${input.boundary.length} boundary edge${input.boundary.length === 1 ? "" : "s"} (one face); red: ${input.nonManifold.length} non-manifold (three or more faces).`, fill: input.nonManifold.length ? RED : ORANGE },
-      { t: `Purple dashed: ${input.inconsistent.length} edge${input.inconsistent.length === 1 ? "" : "s"} whose two faces run the same way (inconsistent winding).`, fill: PURPLE },
+      { t: `Grey: ${g(input.edges.length)} edges${capped}${over ? `; problem edges: first ${g(WIREFRAME_MAX_PROBLEM_EDGES)} of each kind` : ""}.`, fill: GREY },
+      { t: `Orange: ${g(input.boundary.length)} boundary edge${input.boundary.length === 1 ? "" : "s"} (one face); red: ${g(input.nonManifold.length)} non-manifold (3+ faces).`, fill: input.nonManifold.length ? RED : ORANGE },
+      { t: `Purple dashed: ${g(input.inconsistent.length)} edge${input.inconsistent.length === 1 ? "" : "s"} whose two faces run the same way (inconsistent winding).`, fill: PURPLE },
     ]),
   );
   p.push("</svg>");
@@ -424,10 +432,10 @@ export function rayChartSvg(input: {
   p.push(polyline(F, [{ x: 0, y: 0 }, end], `stroke="${RED}" stroke-width="1.4"`));
   p.push(ringAt(F, { x: 0, y: 0 }, RED));
   if (input.hit) p.push(dotAt(F, to2(input.hit), RED, 3.8));
-  const what = input.kind === "sphere" ? "the sphere's great circle in this plane" : input.kind === "box" ? "the box's edges projected onto this plane" : "the triangle projected onto this plane";
+  const what = input.kind === "sphere" ? "the sphere's great circle" : input.kind === "box" ? "the box's edges, projected" : "the triangle, projected";
   p.push(
     ...keyBlock(F, [
-      { t: `Blue: ${what}; the plane holds the ray and the ${input.kind === "triangle" ? "triangle's centroid" : "centre"}.`, fill: BLUE },
+      { t: `Blue: ${what} (the plane of the ray and the ${input.kind === "triangle" ? "centroid" : "centre"}).`, fill: BLUE },
       { t: `Red: the ray from its origin (open circle); ${input.hitLabel}`, fill: RED },
     ]),
   );

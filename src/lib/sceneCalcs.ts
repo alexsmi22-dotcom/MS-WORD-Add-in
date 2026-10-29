@@ -19,7 +19,7 @@ import { refuseNonFinite } from "./finiteResult";
 import { BEZIER_MAX_DEGREE, ARC_REL_TOL, bezierAnalyse, bezierPolyline, nurbsAnalyse, nurbsPolyline, type Vec } from "./sceneCurves";
 import { MESH_MAX_VERTICES, SUBDIV_REAL_MAX_FACES, catmullClarkCounts, catmullClarkStep, countVEF, edgeMap, eulerFromCounts, loopCounts, loopStep, meshStats, parseObj } from "./sceneMesh";
 import { bestSahSplit, boundingVolumes, rayBox, raySphere, rayTriangle, sahCost, unitDir, type RayHit } from "./sceneRay";
-import { TEX_FORMATS, farm, frameBytes, lodBands, nodesForDeadline, pipeline, rawFormat, screenSize, texelDensity, textureMemory, textureSideFor, type Depth, type FarmInput, type LodLevel, type Stage, type TexFormat } from "./scenePipeline";
+import { DEADLINE_SCAN, TEX_FORMATS, farm, frameBytes, prepareFarm, lodBands, nodesForDeadline, pipeline, rawFormat, screenSize, texelDensity, textureMemory, textureSideFor, type Depth, type FarmInput, type LodLevel, type Stage, type TexFormat } from "./scenePipeline";
 import { bezierChartSvg, boundingChartSvg, farmChartSvg, lodChartSvg, meshWireframeSvg, nurbsChartSvg, polycountChartSvg, rayChartSvg, sceneBarsSvg } from "./sceneCharts";
 
 /** The Engineering heading these calculators sit under (added to ENG_GROUP_ORDER after "Light & camera"). */
@@ -274,9 +274,9 @@ const nurbsCalc: SceneCalc = {
     const lines: EngLine[] = [];
     const arc = res.arc;
     if (arc && arc.exact) {
-      lines.push(`This ${degreeWord(p)} ${kind} is an exact circular arc: ${num(arc.sweepDeg)}° of a circle of radius ${num(arc.radius)} about ${pt(arc.centre, tiny)}, because the middle weight ${num(res.weights[1])} equals cos(${num(arc.sweepDeg / 2)}°). At u = ${num(u)} it passes ${pt(res.point, tiny)}, and its largest radial error is ${fmtSig(Math.max(arc.maxRadialError, 0), 2)} (rounding only).`);
+      lines.push(`This ${degreeWord(p)} ${kind} is an exact circular arc: ${num(arc.sweepDeg)}° of a circle of radius ${num(arc.radius)} about ${pt(arc.centre, tiny)}, because the middle weight ${num(res.weights[1])} equals cos(${num(arc.sweepDeg / 2)}°). At u = ${num(u)} it passes ${pt(res.point, tiny)}, and its largest radial error is ${resid(arc.maxRadialError)} (rounding only).`);
     } else {
-      lines.push(`At u = ${num(u)} the ${degreeWord(p)} ${kind} (${res.n} control points, ${pieces} polynomial piece${pieces === 1 ? "" : "s"}) is at ${pt(res.point, tiny)}${res.tangent ? `, heading along ${pt(res.tangent, 1e-13)}` : ""}.${res.inserted ? ` Inserting the knot ${num(res.inserted.u)} adds ${res.inserted.times} control point${res.inserted.times === 1 ? "" : "s"} and moves the curve by at most ${fmtSig(res.insertionDeviation as number, 2)} (rounding only).` : ""}`);
+      lines.push(`At u = ${num(u)} the ${degreeWord(p)} ${kind} (${res.n} control points, ${pieces} polynomial piece${pieces === 1 ? "" : "s"}) is at ${pt(res.point, tiny)}${res.tangent ? `, heading along ${pt(res.tangent, 1e-13)}` : ""}.${res.inserted ? ` Inserting the knot ${num(res.inserted.u)} adds ${res.inserted.times} control point${res.inserted.times === 1 ? "" : "s"} and moves the curve by ${resid(res.insertionDeviation as number)} (rounding only).` : ""}`);
     }
     lines.push(`Degree p = ${p}, ${res.n} control points, ${res.knots.length} knots${res.knotsDefaulted ? " (clamped uniform, as none were given)" : ""}: [${res.knots.map(num).join(", ")}]; parameter domain [${num(res.check.lo)}, ${num(res.check.hi)}]${res.check.clamped ? ", clamped (the curve starts at the first and ends at the last control point)" : ", unclamped (the curve does not reach the end control points)"}.`);
     lines.push(`Weights: ${res.weights.map(num).join(", ")}${res.rational ? " (rational: a NURBS)" : " (all equal: a polynomial B-spline; equal weights cancel)"}.`);
@@ -287,15 +287,15 @@ const nurbsCalc: SceneCalc = {
     else lines.push(`No interior knots: the curve is a single ${degreeWord(p)} piece${res.check.clamped ? " (a rational Bézier curve when clamped)" : ""}.`);
     lines.push(`C(${num(u)}) = ${pt(res.point, tiny)}; C′(${num(u)}) = ${pt(res.d1, tiny)}${res.tangent ? `; unit tangent ${pt(res.tangent, 1e-13)}` : "; C′ = 0 here, so no tangent direction"}.`);
     if (arc) {
-      lines.push(`Circle test (one rational quadratic span): the legs P₀P₁ and P₁P₂ are equal, so the control triangle fits a circle of radius ${num(arc.radius)} about ${pt(arc.centre, tiny)} sweeping ${num(arc.sweepDeg)}°; the exact-circle weight is w₁/√(w₀w₂) = cos(${num(arc.sweepDeg / 2)}°) = ${num(arc.circleWeight)}. ${arc.exact ? `The weight given matches, and over 2,001 samples the distance from the centre never differs from the radius by more than ${fmtSig(Math.max(arc.maxRadialError, 0), 2)}.` : `The weight given (${num(res.weights[1] / Math.sqrt(res.weights[0] * res.weights[2]))}) does not, so the curve is a conic but not this circle: its radius error reaches ${num(arc.maxRadialError)}.`}`);
+      lines.push(`Circle test (one rational quadratic span): the legs P₀P₁ and P₁P₂ are equal, so the control triangle fits a circle of radius ${num(arc.radius)} about ${pt(arc.centre, tiny)} sweeping ${num(arc.sweepDeg)}°; the exact-circle weight is w₁/√(w₀w₂) = cos(${num(arc.sweepDeg / 2)}°) = ${num(arc.circleWeight)}. ${arc.exact ? `The weight given matches, and over 2,001 samples the distance from the centre differs from the radius by ${resid(arc.maxRadialError)}.` : `The weight given (${num(res.weights[1] / Math.sqrt(res.weights[0] * res.weights[2]))}) does not, so the curve is a conic but not this circle: its radius error reaches ${num(arc.maxRadialError)}.`}`);
       lines.push({ math: "w_1 = cos(theta/2)", fallback: "w₁ = cos(θ/2), θ the arc's sweep (√2/2 for a quarter circle)" });
     }
     if (res.inserted) {
-      lines.push(`Knot insertion (Boehm): u = ${num(res.inserted.u)} inserted ${res.inserted.times} time${res.inserted.times === 1 ? "" : "s"}. New knots [${res.inserted.U.map(num).join(", ")}]; new control points ${res.inserted.P.map((q) => pt(q, tiny)).join(", ")}; weights ${res.inserted.w.map(num).join(", ")}. Largest change in the curve over 1,001 samples: ${fmtSig(res.insertionDeviation as number, 2)}.`);
+      lines.push(`Knot insertion (Boehm): u = ${num(res.inserted.u)} inserted ${res.inserted.times} time${res.inserted.times === 1 ? "" : "s"}. New knots [${res.inserted.U.map(num).join(", ")}]; new control points ${res.inserted.P.map((q) => pt(q, tiny)).join(", ")}; weights ${res.inserted.w.map(num).join(", ")}. Largest change in the curve over 1,001 samples: ${resid(res.insertionDeviation as number)}.`);
     }
     lines.push("Assumes: a NURBS curve in 2-D or 3-D with every weight positive (a zero or negative weight lets the denominator vanish and is refused). The knot vector sets the parameterisation; the circle test applies to a single rational quadratic span in the plane.");
     const rows: string[][] = [["Quantity", "Value"], ["Degree", String(p)], ["Control points", String(res.n)], ["Polynomial pieces", String(pieces)], [`C(${num(u)})`, pt(res.point, tiny)]];
-    if (arc) rows.push(["Exact-circle weight cos(θ/2)", num(arc.circleWeight)], ["Largest radial error", fmtSig(Math.max(arc.maxRadialError, 0), 2)]);
+    if (arc) rows.push(["Exact-circle weight cos(θ/2)", num(arc.circleWeight)], ["Largest radial error", resid(arc.maxRadialError)]);
     if (res.inserted) rows.push(["Control points after insertion", String(res.inserted.P.length)]);
     const outputs: EngOutput[] = [
       { key: "x", label: "x at u", value: res.point[0], unit: "" },
@@ -314,6 +314,12 @@ const nurbsCalc: SceneCalc = {
     ], outputs);
   },
 };
+
+/**
+ * A rounding residue in words: below 10⁻¹⁵ it is "under 10⁻¹⁵", because its last digits come from acos/tan/cos rounding
+ * and differ between JavaScript engines (WebView2 on Windows, JavaScriptCore on the Mac); above, the value.
+ */
+const resid = (x: number): string => (Math.abs(x) < 1e-15 ? "under 10⁻¹⁵" : `at most ${fmtSig(x, 2)}`);
 
 const SUPS = "⁰¹²³⁴⁵⁶⁷⁸⁹";
 const sup = (n: number): string => String(n).replace(/\d/g, (d) => SUPS[Number(d)]);
@@ -461,7 +467,8 @@ const meshCalc: SceneCalc = {
     const diag = Math.hypot(...s.bmax.map((v, i) => v - s.bmin[i]));
     const tiny = 1e-12 * Math.max(diag, 1e-300);
     const lines: EngLine[] = [];
-    const counts = `${int(s.referenced)} vertices, ${int(s.edges)} edges and ${int(s.faces)} faces (χ = ${s.chi})`;
+    const many = (n: number, w: string): string => `${int(n)} ${w}${n === 1 ? "" : w.endsWith("x") ? "es" : "s"}`;
+    const counts = `${many(s.referenced, "vertex").replace("vertexes", "vertices")}, ${many(s.edges, "edge")} and ${many(s.faces, "face")} (χ = ${s.chi})`;
     const valid = s.closed && s.inconsistentEdges.length === 0;
     if (s.nonManifoldEdges.length)
       lines.push(`This mesh is not a manifold surface: ${s.nonManifoldEdges.length} edge${s.nonManifoldEdges.length === 1 ? " is" : "s are"} shared by three or more faces, so it has no well-defined inside, volume or genus. It has ${counts}.`);
@@ -1010,6 +1017,8 @@ const textureCalc: SceneCalc = {
 // ---------------------------------------------------------------------------------------------------------------
 
 const FARM_MAX_FRAMES = 100000;
+/** Measured per-frame times are scheduled (LPT) at every node count tried: a smaller cap keeps that bounded. */
+const FARM_MAX_TIMES = 10000;
 const FARM_MAX_NODES = 10000;
 
 const farmCalc: SceneCalc = {
@@ -1055,7 +1064,7 @@ const farmCalc: SceneCalc = {
     const timesRaw = (r("times") ?? "").trim();
     if (timesRaw) {
       const toks = timesRaw.split(/[\r\n,;]+/).map((x) => x.trim()).filter(Boolean);
-      if (toks.length > FARM_MAX_FRAMES) return refuse(`${toks.length} frame times: the cap is ${FARM_MAX_FRAMES.toLocaleString("en-US")}.`);
+      if (toks.length > FARM_MAX_TIMES) return refuse(`${toks.length.toLocaleString("en-US")} frame times: the cap for a measured list is ${FARM_MAX_TIMES.toLocaleString("en-US")} (give the mean time per frame and the frame count instead).`);
       frameTimes = [];
       for (const [i, tok] of toks.entries()) {
         const m = parseMeasured(tok.replace(/[−–]/g, "-"), "h");
@@ -1068,33 +1077,36 @@ const farmCalc: SceneCalc = {
     if (typeof frames === "string") return refuse(frames);
     const mean = frameTimes ? frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length : t;
     const input: FarmInput = { frameTimes, meanTime: mean, frames, nodes, coresPerNode: cores, serial, overhead };
-    const res = farm(input);
-    const need = deadline === null ? null : nodesForDeadline(input, deadline, Math.min(frames, FARM_MAX_NODES));
+    const prep = prepareFarm(input);
+    const res = farm(input, prep);
+    const dl = deadline === null ? null : nodesForDeadline(input, deadline, prep);
+    const need = dl === null ? null : dl.nodes;
     const perHour = r("bill") === "node" ? "node" : "core";
     const allocHours = (res.allocatedNodeSeconds / 3600) * (perHour === "core" ? cores : 1);
     const busyHours = (res.busyNodeSeconds / 3600) * (perHour === "core" ? cores : 1);
     const cost = allocHours * rate;
     const lines: EngLine[] = [];
     const meets = deadline === null ? "" : res.wall <= deadline ? `, inside the ${dur(deadline)} deadline` : `, missing the ${dur(deadline)} deadline`;
-    lines.push(`${int(frames)} frames on ${nodes} node${nodes === 1 ? "" : "s"} of ${cores} cores finish in ${dur(res.wall)}${meets}${need !== null && deadline !== null && res.wall > deadline ? `; ${need} nodes would make it` : deadline !== null && need === null ? "; no node count makes it, because one frame alone takes longer than the deadline" : ""}. Each frame takes ${dur(res.nodeFrameTime)} on a node (a ${num(res.speedup)}× speed-up from ${cores} cores), and the job costs ${num(cost)} at ${num(rate)} per ${perHour}-hour.`);
+    lines.push(`${int(frames)} frames on ${nodes} node${nodes === 1 ? "" : "s"} of ${cores} cores finish in ${dur(res.wall)}${meets}${need !== null && deadline !== null && res.wall > deadline ? `; ${dl && dl.how === "bound" ? "at most " : ""}${need} nodes would make it` : deadline !== null && need === null ? "; no node count makes it, because one frame alone takes longer than the deadline" : ""}. Each frame takes ${dur(res.nodeFrameTime)} on a node (a ${num(res.speedup)}× speed-up from ${cores} cores), and the job costs ${num(cost)} at ${num(rate)} per ${perHour}-hour.`);
     lines.push({ math: "S = 1/(s + (1 - s)/c)", fallback: "S = 1/(s + (1 − s)/c), Amdahl's law with serial fraction s on c cores" });
     lines.push({ math: "t_node = t_1/S + t_o", fallback: "t(node) = t₁/S + t₀, the one-core time over the speed-up plus the per-frame overhead" });
     lines.push({ math: "T = ceil(N/n) t_node", fallback: "T = ⌈N/n⌉·t(node) for N equal frames on n nodes (whole frames: a node renders one frame at a time)" });
-    lines.push(`Per frame: ${dur(mean)} on one core${frameTimes ? ` (the mean of ${frameTimes.length} measured times, ${dur(Math.min(...frameTimes))} to ${dur(Math.max(...frameTimes))})` : ""}; on ${cores} cores with serial fraction ${num(serial)} the speed-up is ${num(res.speedup)} (ceiling ${serial > 0 ? num(1 / serial) : "unbounded"} at infinitely many cores), core efficiency ${pct(res.coreEfficiency)}; plus ${dur(overhead)} overhead: ${dur(res.nodeFrameTime)} per frame per node.`);
+    lines.push(`Per frame: ${dur(mean)} on one core${frameTimes ? ` (the mean of ${frameTimes.length} measured times, ${dur(prep.sorted ? (prep.sorted[prep.sorted.length - 1] - overhead) * res.speedup : mean)} to ${dur(prep.sorted ? (prep.sorted[0] - overhead) * res.speedup : mean)})` : ""}; on ${cores} cores with serial fraction ${num(serial)} the speed-up is ${num(res.speedup)} (ceiling ${serial > 0 ? num(1 / serial) : "unbounded"} at infinitely many cores), core efficiency ${pct(res.coreEfficiency)}; plus ${dur(overhead)} overhead: ${dur(res.nodeFrameTime)} per frame per node.`);
     if (serial === 1) lines.push("Serial fraction 1: the render does not parallelise at all, so extra cores per node give no speed-up (only extra nodes help).");
     lines.push(res.scheduler === "rounds"
       ? `Completion: ⌈${int(frames)}/${nodes}⌉ = ${Math.ceil(frames / nodes)} round${Math.ceil(frames / nodes) === 1 ? "" : "s"} of ${dur(res.nodeFrameTime)} = ${dur(res.wall)}${frames % nodes ? `; the last round uses ${frames % nodes} of the ${nodes} nodes` : ""}.`
       : `Completion by LPT scheduling (longest frame first onto the least-loaded node, a heuristic within 4/3 of the optimum): ${dur(res.wall)}; no schedule can beat ${dur(res.lowerBound)} (the longest frame, or the work spread perfectly).`);
     lines.push(`Utilisation: busy ${num(res.busyNodeSeconds / 3600)} node-hours of ${num(res.allocatedNodeSeconds / 3600)} allocated (${pct(res.utilisation)}).`);
-    if (deadline !== null) lines.push(need === null ? `No number of nodes meets ${dur(deadline)}: even one frame per node takes ${dur(frameTimes ? Math.max(...frameTimes.map((x) => x / res.speedup + overhead)) : res.nodeFrameTime)}. Shorten the frame (fewer samples, more cores per node) or move the deadline.` : `Nodes for the ${dur(deadline)} deadline: ${need} (found by trying every count from 1, not by assuming the time falls smoothly).`);
+    if (deadline !== null) lines.push(need === null ? `No number of nodes meets ${dur(deadline)}: even one frame per node takes ${dur(prep.longest)}. Shorten the frame (fewer samples, more cores per node) or move the deadline.` : dl && dl.how === "rounds" ? `Nodes for the ${dur(deadline)} deadline: ${need} (each node fits ⌊${dur(deadline)}/${dur(res.nodeFrameTime)}⌋ = ${Math.floor((deadline * (1 + 1e-12)) / res.nodeFrameTime + 1e-12)} whole frame${Math.floor((deadline * (1 + 1e-12)) / res.nodeFrameTime + 1e-12) === 1 ? "" : "s"}, and ⌈${int(frames)}/that⌉ nodes are needed).` : dl && dl.how === "scan" ? `Nodes for the ${dur(deadline)} deadline: ${need}, the fewest that LPT schedules within it (every count from ${dl.from}, the work over the deadline, was tried: LPT's completion need not fall smoothly as nodes are added).` : `Nodes for the ${dur(deadline)} deadline: at most ${need}. Graham's bound for list scheduling, (work − longest frame)/n + longest frame ≤ deadline, guarantees that many; the ${DEADLINE_SCAN} counts from ${dl ? dl.from : 1} that were tried by LPT did not meet it, and the exact minimum was not searched further.`);
     lines.push(`Cost: billed on ALLOCATED time (nodes held for the whole ${dur(res.wall)}), ${num(allocHours)} ${perHour}-hours × ${num(rate)} = ${num(cost)}; the busy time alone is ${num(busyHours)} ${perHour}-hours (${num(busyHours * rate)}), the floor if idle nodes are released.`);
     lines.push("Assumes: identical nodes, each rendering one frame at a time on all its cores; Amdahl's law for the in-frame speed-up (memory bandwidth, I/O and licence limits are not modelled); a fixed overhead per frame; no failures, retries or queue wait; the per-frame time is an input (from a test render), not predicted from the scene.");
     const curve: Array<{ n: number; hours: number }> = [];
     const nMax = Math.min(frames, Math.max(2 * nodes, need ?? 0, 8), FARM_MAX_NODES);
-    const step = Math.max(1, Math.ceil(nMax / 400));
-    for (let n = 1; n <= nMax; n += step) curve.push({ n, hours: farm({ ...input, nodes: n }).wall / 3600 });
-    if (curve[curve.length - 1].n !== nMax) curve.push({ n: nMax, hours: farm({ ...input, nodes: nMax }).wall / 3600 });
-    const rows: string[][] = [["Quantity", "Value"], ["Speed-up per node", num(res.speedup)], ["Time per frame on a node", dur(res.nodeFrameTime)], ["Completion", dur(res.wall)], ["Utilisation", pct(res.utilisation)], ["Nodes for the deadline", deadline === null ? "no deadline" : need === null ? "none suffices" : String(need)], ["Cost (allocated)", num(cost)]];
+    // Equal frames cost nothing per point; measured frames are an LPT schedule per point, so fewer points.
+    const step = Math.max(1, Math.ceil(nMax / (prep.sorted ? 120 : 400)));
+    for (let n = 1; n <= nMax; n += step) curve.push({ n, hours: farm({ ...input, nodes: n }, prep).wall / 3600 });
+    if (curve[curve.length - 1].n !== nMax) curve.push({ n: nMax, hours: farm({ ...input, nodes: nMax }, prep).wall / 3600 });
+    const rows: string[][] = [["Quantity", "Value"], ["Speed-up per node", num(res.speedup)], ["Time per frame on a node", dur(res.nodeFrameTime)], ["Completion", dur(res.wall)], ["Utilisation", pct(res.utilisation)], ["Nodes for the deadline", deadline === null ? "no deadline" : need === null ? "none suffices" : dl && dl.how === "bound" ? `at most ${need}` : String(need)], ["Cost (allocated)", num(cost)]];
     const outputs: EngOutput[] = [
       { key: "wall", label: "Completion", value: res.wall / 3600, unit: "h" },
       { key: "speedup", label: "Speed-up per node", value: res.speedup, unit: "" },

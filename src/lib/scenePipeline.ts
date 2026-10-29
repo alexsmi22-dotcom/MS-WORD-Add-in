@@ -196,15 +196,37 @@ export interface FarmResult {
   coreEfficiency: number;
 }
 
-/** Node time of a frame of single-core time t: t·(s + (1 − s)/c) + overhead. */
-function nodeTime(t: number, serial: number, cores: number, overhead: number): number {
-  const sp = parallelSpeedup(1 - serial, cores);
-  return t / (sp ? sp.amdahl : 1) + overhead;
+/** What every node count shares, computed once: the speed-up, each frame's node time sorted longest first, the work. */
+export interface FarmPrep {
+  speedup: number;
+  nodeFrameTime: number;
+  /** Node times of the measured frames, longest first; null for equal frames. */
+  sorted: number[] | null;
+  /** Busy node-seconds for the whole job. */
+  busy: number;
+  /** The longest single frame on a node: no schedule finishes sooner. */
+  longest: number;
 }
 
-/** Longest-processing-time-first onto `nodes` identical nodes: the makespan (a heuristic, at most 4/3 of optimal). */
-export function lptMakespan(times: number[], nodes: number): number {
-  const sorted = times.slice().sort((a, b) => b - a);
+export function prepareFarm(input: FarmInput): FarmPrep {
+  const sp = parallelSpeedup(1 - input.serial, input.coresPerNode);
+  const speedup = sp ? sp.amdahl : 1;
+  const nt = (t: number): number => t / speedup + input.overhead;
+  const nodeFrameTime = nt(input.meanTime);
+  if (input.frameTimes) {
+    const sorted = input.frameTimes.map(nt).sort((a, b) => b - a);
+    let busy = 0;
+    for (const t of sorted) busy += t;
+    return { speedup, nodeFrameTime, sorted, busy, longest: sorted[0] ?? 0 };
+  }
+  return { speedup, nodeFrameTime, sorted: null, busy: input.frames * nodeFrameTime, longest: nodeFrameTime };
+}
+
+/**
+ * Longest-processing-time-first onto `nodes` identical nodes (a heuristic, at most 4/3 of optimal), on times already
+ * sorted longest first: O(F log n) with a heap of node loads.
+ */
+function lptSorted(sorted: number[], nodes: number): number {
   if (nodes >= sorted.length) return sorted[0] ?? 0;
   // A binary heap of node loads.
   const heap = new Array<number>(nodes).fill(0);
@@ -224,45 +246,62 @@ export function lptMakespan(times: number[], nodes: number): number {
     heap[0] += t;
     down(0);
   }
-  return Math.max(...heap);
+  let max = 0;
+  for (const h of heap) if (h > max) max = h;
+  return max;
 }
 
-export function farm(input: FarmInput): FarmResult {
-  const { frames, nodes, coresPerNode: c, serial, overhead } = input;
-  const sp = parallelSpeedup(1 - serial, c);
-  const speedup = sp ? sp.amdahl : 1;
-  const nodeTimes = input.frameTimes ? input.frameTimes.map((t) => nodeTime(t, serial, c, overhead)) : null;
-  const nodeFrameTime = nodeTime(input.meanTime, serial, c, overhead);
-  let wall: number;
-  let busy: number;
-  let lowerBound: number;
-  if (nodeTimes) {
-    wall = lptMakespan(nodeTimes, nodes);
-    busy = nodeTimes.reduce((s, t) => s + t, 0);
-    lowerBound = Math.max(Math.max(...nodeTimes), busy / nodes);
-  } else {
-    wall = Math.ceil(frames / nodes) * nodeFrameTime;
-    busy = frames * nodeFrameTime;
-    lowerBound = Math.max(nodeFrameTime, busy / nodes);
-  }
+/** The farm at `input.nodes` nodes. Pass a FarmPrep to reuse the sorted node times across node counts. */
+export function farm(input: FarmInput, prep: FarmPrep = prepareFarm(input)): FarmResult {
+  const { frames, nodes, coresPerNode: c } = input;
+  const wall = prep.sorted ? lptSorted(prep.sorted, nodes) : Math.ceil(frames / nodes) * prep.nodeFrameTime;
   const allocated = nodes * wall;
   return {
-    speedup,
-    nodeFrameTime,
+    speedup: prep.speedup,
+    nodeFrameTime: prep.nodeFrameTime,
     wall,
-    lowerBound,
-    scheduler: nodeTimes ? "lpt" : "rounds",
-    busyNodeSeconds: busy,
+    lowerBound: Math.max(prep.longest, prep.busy / nodes),
+    scheduler: prep.sorted ? "lpt" : "rounds",
+    busyNodeSeconds: prep.busy,
     allocatedNodeSeconds: allocated,
-    utilisation: allocated > 0 ? busy / allocated : 0,
-    coreEfficiency: speedup / c,
+    utilisation: allocated > 0 ? prep.busy / allocated : 0,
+    coreEfficiency: prep.speedup / c,
   };
 }
 
-/** The fewest nodes (1 … cap) that finish by the deadline, by a full scan (completion is not assumed monotone). */
-export function nodesForDeadline(input: FarmInput, deadline: number, cap: number): number | null {
-  for (let n = 1; n <= cap; n++) if (farm({ ...input, nodes: n }).wall <= deadline * (1 + 1e-12)) return n;
-  return null;
+/** LPT counts tried above the lower bound before falling back to Graham's guarantee. */
+export const DEADLINE_SCAN = 200;
+
+export interface DeadlineNodes {
+  /** The node count, or null when no count can meet the deadline (one frame alone is longer). */
+  nodes: number | null;
+  /** "rounds": exact, from whole frames per node; "scan": the fewest found by trying every count from `from`;
+   *  "bound": a count Graham's list-scheduling bound guarantees, after the scan found none. */
+  how: "rounds" | "scan" | "bound" | "none";
+  /** The lower bound ⌈busy/deadline⌉ the scan starts at. */
+  from: number;
+}
+
+/**
+ * The nodes a deadline needs. Equal frames: ⌈F/⌊D/t⌋⌉ exactly (each node fits ⌊D/t⌋ whole frames). Measured frames
+ * under LPT (not monotone in the node count in general, so nothing is bisected): no count below ⌈busy/D⌉ can work and
+ * none can if the longest frame exceeds D; from ⌈busy/D⌉ every count is tried, up to DEADLINE_SCAN of them. If none
+ * meets D, Graham's bound for any list schedule, makespan ≤ (busy − longest)/n + longest, gives a count that is
+ * guaranteed: n ≥ (busy − longest)/(D − longest), and never more than one node per frame.
+ */
+export function nodesForDeadline(input: FarmInput, deadline: number, prep: FarmPrep = prepareFarm(input)): DeadlineNodes {
+  const D = deadline * (1 + 1e-12);
+  if (prep.longest > D) return { nodes: null, how: "none", from: 0 };
+  const from = Math.max(1, Math.ceil(prep.busy / D - 1e-9));
+  if (!prep.sorted) {
+    const perNode = Math.floor(D / prep.nodeFrameTime + 1e-12);
+    return { nodes: Math.ceil(input.frames / Math.max(1, perNode)), how: "rounds", from };
+  }
+  const F = prep.sorted.length;
+  for (let n = from; n <= Math.min(F, from + DEADLINE_SCAN - 1); n++) if (lptSorted(prep.sorted, n) <= D) return { nodes: n, how: "scan", from };
+  const gap = D - prep.longest;
+  const graham = gap > 0 ? Math.ceil((prep.busy - prep.longest) / gap - 1e-9) : F;
+  return { nodes: Math.min(F, Math.max(from, graham)), how: "bound", from };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

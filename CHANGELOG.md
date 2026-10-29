@@ -33,7 +33,7 @@ re-implementations where no library exists (`scripts/scene-oracle.py`, fixtures 
   - The curve is evaluated by de Boor in homogeneous coordinates, and a knot can be inserted by Boehm's algorithm with
     the curve unchanged.
   - A single rational quadratic span is tested for an exact circular arc. The default quarter circle (weights 1, √2/2,
-    1) has a largest radial error of 3.3×10⁻¹⁶.
+    1) has a largest radial error under 10⁻¹⁵ (rounding only).
   - The point, the derivative and the inserted knots, control points and weights agree with geomdl and with scipy on
     homogeneous coordinates.
 - **Mesh statistics & validity** from pasted OBJ v/f lines (up to 20,000 vertices and faces), or from V, E, F counts:

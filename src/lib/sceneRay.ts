@@ -212,14 +212,43 @@ export function sahCost(P: Vec[], axis: number, position: number, cTrav: number,
   return { axis, position, left: L.length, right: R.length, areaParent: A, areaLeft: AL, areaRight: AR, cost };
 }
 
-/** The cheapest split over every axis, at every midpoint between consecutive distinct coordinates (a full sweep). */
+/**
+ * The cheapest split over every axis, at every midpoint between consecutive distinct coordinates (a full sweep), in
+ * O(n log n): the points sorted once per axis, with the boxes of every prefix and suffix built incrementally. Points
+ * sharing a coordinate stay on one side, as the "below the plane goes left" rule puts them.
+ */
 export function bestSahSplit(P: Vec[], cTrav: number, cIsect: number): SahSplit | null {
   let best: SahSplit | null = null;
+  const n = P.length;
+  const grow = (lo: Vec, hi: Vec, p: Vec): void => {
+    for (let j = 0; j < 3; j++) {
+      if (p[j] < lo[j]) lo[j] = p[j];
+      if (p[j] > hi[j]) hi[j] = p[j];
+    }
+  };
+  const all: [Vec, Vec] = [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
+  for (const p of P) grow(all[0], all[1], p);
+  const A = boxArea(all[0], all[1]);
+  if (!(A > 0)) return null;
   for (let axis = 0; axis < 3; axis++) {
-    const xs = [...new Set(P.map((p) => p[axis]))].sort((a, b) => a - b);
-    for (let i = 0; i + 1 < xs.length; i++) {
-      const s = sahCost(P, axis, (xs[i] + xs[i + 1]) / 2, cTrav, cIsect);
-      if (s && (!best || s.cost < best.cost - 1e-12)) best = s;
+    const S = P.slice().sort((a, b) => a[axis] - b[axis]);
+    // Suffix boxes: suf[i] bounds S[i..n-1].
+    const sufArea = new Array<number>(n + 1).fill(0);
+    const slo: Vec = [Infinity, Infinity, Infinity];
+    const shi: Vec = [-Infinity, -Infinity, -Infinity];
+    for (let i = n - 1; i >= 0; i--) {
+      grow(slo, shi, S[i]);
+      sufArea[i] = boxArea(slo, shi);
+    }
+    const plo: Vec = [Infinity, Infinity, Infinity];
+    const phi: Vec = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i + 1 < n; i++) {
+      grow(plo, phi, S[i]);
+      if (S[i + 1][axis] === S[i][axis]) continue; // equal coordinates never separate
+      const left = i + 1;
+      const cost = cTrav + (boxArea(plo, phi) / A) * left * cIsect + (sufArea[i + 1] / A) * (n - left) * cIsect;
+      if (!best || cost < best.cost - 1e-12)
+        best = { axis, position: (S[i][axis] + S[i + 1][axis]) / 2, left, right: n - left, areaParent: A, areaLeft: boxArea(plo, phi), areaRight: sufArea[i + 1], cost };
     }
   }
   return best;

@@ -19,7 +19,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   construction converging on the red point, and the orange bounding box. Enter four lines of `1, 1` → "the single
   point (1, 1) … no tangent, normal or curvature".
 - [ ] **B-spline / NURBS** (defaults: weights `1, √2/2, 1`) → "an exact circular arc: 90° of a circle of radius 1
-  about (0, 0)"; C(0.5) = (0.707107, 0.707107); the largest radial error is 3.3×10⁻¹⁶. Knot insertion at 0.5 gives
+  about (0, 0)"; C(0.5) = (0.707107, 0.707107); the largest radial error is "under 10⁻¹⁵". Knot insertion at 0.5 gives
   the control points (1, 0), (1, 0.414214), (0.414214, 1), (0, 1). Weight `0` → refused ("A zero weight puts that
   control point at infinity …"); knots `0 0 1 0 1 1` → "decreases at position 4".
 - [ ] **Mesh statistics** (default cube) → genus 0, χ = 2, area 24, volume 8; the wireframe is all grey. Delete the

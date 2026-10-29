@@ -9,7 +9,7 @@ import { SCENE_CALCS, SCENE_GROUP } from "../sceneCalcs";
 import { bezierAnalyse, bezierPoint, bezierSplit, bezierElevate, bernsteinRoots, nurbsAnalyse, nurbsPoint, checkKnots, clampedUniformKnots, insertKnot, type Vec } from "../sceneCurves";
 import { parseObj, meshStats, catmullClarkStep, loopStep, countVEF, catmullClarkCounts, loopCounts, eulerFromCounts, MESH_MAX_VERTICES } from "../sceneMesh";
 import { raySphere, rayBox, rayTriangle, unitDir, sahCost, bestSahSplit, boundingVolumes } from "../sceneRay";
-import { TEX_FORMATS, textureMemory, farm, lptMakespan, nodesForDeadline, frameBytes, screenSize, lodBands, pipeline } from "../scenePipeline";
+import { TEX_FORMATS, textureMemory, farm, nodesForDeadline, frameBytes, screenSize, lodBands, pipeline } from "../scenePipeline";
 import { readingProblems } from "../calcReading";
 import { mathToOmml } from "../mathOmml";
 import type { AnalyzeOutput } from "../analyzeBlocks";
@@ -365,8 +365,6 @@ describe("pipeline numbers against independent re-implementations", () => {
     near(out(o, "speedup"), F.speedup, 1e-14);
     near(out(o, "wall") * 3600, F.wall, 1e-12);
     expect(out(o, "nodesNeeded")).toBe(F.nodes_for_24h);
-    const S = F.speedup;
-    expect(lptMakespan([3, 9, 6, 12, 2, 8, 7, 4].map((t) => (t * 3600) / S + 120), 3)).toBeCloseTo(ORACLE.pipeline.farm_lpt.wall, 9);
     const lp = ok(run("scene-farm", { times: "3 h\n9 h\n6 h\n12 h\n2 h\n8 h\n7 h\n4 h", nodes: "3" }));
     near(out(lp, "wall") * 3600, ORACLE.pipeline.farm_lpt.wall, 1e-12);
     expect(lp.text).toMatch(/LPT scheduling/);
@@ -571,7 +569,16 @@ describe("pipeline tools: refusals and edge cases by name", () => {
     refused(run("scene-farm", { cores: "0" }), /Cores per node: 0 is below 1/);
     const o = ok(run("scene-farm", { deadline: "30 min" }));
     expect(reading(o)).toMatch(/no node count makes it, because one frame alone takes longer than the deadline/);
-    expect(nodesForDeadline({ frameTimes: null, meanTime: 3600, frames: 4, nodes: 1, coresPerNode: 1, serial: 0, overhead: 0 }, 1800, 4)).toBeNull();
+    expect(nodesForDeadline({ frameTimes: null, meanTime: 3600, frames: 4, nodes: 1, coresPerNode: 1, serial: 0, overhead: 0 }, 1800).nodes).toBeNull();
+    // Equal frames: ⌈F/⌊D/t⌋⌉ exactly. Measured frames: the fewest from ⌈work/D⌉, checked against a brute-force LPT scan.
+    expect(nodesForDeadline({ frameTimes: null, meanTime: 3600, frames: 10, nodes: 1, coresPerNode: 1, serial: 0, overhead: 0 }, 3 * 3600)).toMatchObject({ nodes: 4, how: "rounds" });
+    const ft = [5, 3, 3, 2, 2, 2, 1, 1, 7, 4].map((h) => h * 3600);
+    const inp = { frameTimes: ft, meanTime: 0, frames: ft.length, nodes: 1, coresPerNode: 1, serial: 0, overhead: 0 };
+    for (const D of [7, 8, 10, 15, 30]) {
+      let brute = 0;
+      for (let n = 1; n <= ft.length && !brute; n++) if (farm({ ...inp, nodes: n }).wall <= D * 3600 * (1 + 1e-12)) brute = n;
+      expect(nodesForDeadline(inp, D * 3600)).toMatchObject({ nodes: brute, how: "scan" });
+    }
   });
   test("farm units: a time in a mass unit is refused; minutes convert", () => {
     refused(run("scene-farm", { t: "8 kg" }), /Render time per frame/);
@@ -604,5 +611,56 @@ describe("pipeline tools: refusals and edge cases by name", () => {
     expect(screenSize(1, 10, Math.PI / 2, 1000).radiusPx).toBeCloseTo(50, 12);
     expect(lodBands([{ name: "a", error: 0.01, triangles: 10 }], 1000, 1)[0].switchDistance).toBe(10);
     expect(catmullClarkCounts(8, 12, 6, 24, 12, 0).length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Work is bounded: every calculator at its own input caps finishes well inside the 2.5 s figure re-render budget
+// (a calculation that runs away freezes Word), and the figures stay a reasonable size.
+// ---------------------------------------------------------------------------------------------------------------
+
+describe("work is bounded at the input caps", () => {
+  const grid = (n: number): string => {
+    const L: string[] = [];
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) L.push(`v ${i} ${j} ${Math.sin(i / 7) * Math.cos(j / 5)}`);
+    for (let i = 0; i + 1 < n; i++) for (let j = 0; j + 1 < n; j++) {
+      const a = i * n + j + 1;
+      L.push(`f ${a} ${a + n} ${a + n + 1} ${a + 1}`);
+    }
+    return L.join("\n");
+  };
+  const soup = (m: number): string => {
+    const L: string[] = [];
+    for (let k = 0; k < m; k++) L.push(`v ${k} 0 0`, `v ${k} 1 0`, `v ${k} 0 1`);
+    for (let k = 0; k < m; k++) L.push(`f ${3 * k + 1} ${3 * k + 2} ${3 * k + 3}`);
+    return L.join("\n");
+  };
+  let seed = 1;
+  const rnd = (): number => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const times = Array.from({ length: 10000 }, () => `${(1 + rnd() * 10).toFixed(3)} h`).join("\n");
+  const cases: Array<[string, string, Record<string, string>]> = [
+    ["degree-20 Bézier", "scene-bezier", { pts: Array.from({ length: 21 }, (_, i) => `${i}, ${Math.sin(i) * 5}, ${Math.cos(i)}`).join("\n"), t: "0.37" }],
+    ["200-point degree-10 NURBS, knot inserted 9 times", "scene-nurbs", { deg: "10", pts: Array.from({ length: 200 }, (_, i) => `${i}, ${Math.sin(i / 3) * 5}`).join("\n"), w: "", U: "", u: "0.5", ins: "0.501", times: "9" }],
+    ["19,600-quad grid mesh", "scene-mesh", { obj: grid(141) }],
+    ["6,666-triangle soup (every edge a boundary)", "scene-mesh", { obj: soup(6666) }],
+    ["9,801-quad grid, 10 levels", "scene-subdiv", { obj: grid(100), levels: "10", budget: "" }],
+    ["5,000 points and the SAH sweep", "scene-bvol", { pts: Array.from({ length: 5000 }, () => `${rnd() * 10}, ${rnd() * 3}, ${rnd()}`).join("\n"), pos: "5" }],
+    ["10,000 frame times, impossible deadline", "scene-farm", { times, deadline: "30 min" }],
+    ["10,000 frame times, tight deadline", "scene-farm", { times, deadline: "12 h", nodes: "50" }],
+    ["100,000 equal frames", "scene-farm", { frames: "100000", deadline: "1 h" }],
+    ["65,536² ASTC 12×12", "scene-texture", { w: "65536", h: "65536", fmt: "astc12x12" }],
+  ];
+  test.each(cases)("%s", (_name, id, over) => {
+    const t0 = Date.now();
+    const o = ok(run(id, over));
+    const ms = Date.now() - t0;
+    expect(ms).toBeLessThan(2500);
+    const svgBytes = (o.blocks ?? []).reduce((s, b) => s + (b.kind === "plot" ? b.svg.length : 0), 0);
+    expect(svgBytes).toBeLessThan(1_500_000);
+  });
+  test("the problem-edge cap is said in the key", () => {
+    const o = ok(run("scene-mesh", { obj: soup(600) }));
+    const svg = (o.blocks ?? []).find((b) => b.kind === "plot");
+    expect(svg && svg.kind === "plot" && svg.svg).toMatch(/problem edges: first 1,500 of each kind/);
   });
 });

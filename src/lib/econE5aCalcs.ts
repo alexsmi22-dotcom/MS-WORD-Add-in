@@ -13,7 +13,7 @@ import { fmtFixed, intText, numText, groupThousands } from "./regTable";
 import { semicolonCommaRefusal } from "./numberList";
 import { groupedBarSvg } from "./statchart";
 import { linearAxis } from "./axis";
-import { ctxCanvas } from "./figContext";
+import { ctxCanvas, ctxFrameLayout } from "./figContext";
 import { ratAdd, ratSub, ratMul, ratDiv, ratSign, ratToNumber, parseRatLiteral, RAT_ZERO, type Rat } from "./cas";
 import { inequality, lorenzAt, lorenzSvg, exactOf, shortFraction, type IneqResult } from "./inequality";
 import {
@@ -1405,13 +1405,16 @@ export function ioReading(names: string[], outMult: number[], keys: string[]): s
 }
 
 function linkageSvg(names: string[], bl: number[], fl: number[], flKind: string): string {
-  const ML = 52;
-  const MR = 14;
-  const MT = 26;
-  const MB = 62;
-  // At the figure context's width under a figure-style re-render (lib/figContext.ts); 400 × 320 otherwise.
+  // At the figure context's width under a figure-style re-render (lib/figContext.ts); 400 × 320 otherwise. Under a
+  // re-render (round 2) the axis titles wrap, the legend takes a row per item and the sector labels sit on a white
+  // backing (a gridline ran through "Manufacturing"): ctxLegend below. As drawn, unchanged.
   const cv = ctxCanvas(400, 320);
   const W = cv.w;
+  const L = ctxFrameLayout(W, "Backward linkage (Rasmussen index, 1 = average)", `Forward linkage (${flKind}, 1 = average)`, ["Sector", "Index = 1 (key sectors: upper right)"], { ML: 52, MB: 62 });
+  const ML = L.ML;
+  const MR = 14;
+  const MT = 26;
+  const MB = L.MB;
   const H = Math.max(cv.h, Math.round(MT + MB + 0.6 * (W - ML - MR)));
   const pw = W - ML - MR;
   const ph = H - MT - MB;
@@ -1454,16 +1457,29 @@ function linkageSvg(names: string[], bl: number[], fl: number[], flKind: string)
     parts.push(`<circle cx="${fx(cx)}" cy="${fx(cy)}" r="3.5" fill="#1d4ed8"/>`);
     if (names.length <= 12) {
       const right = cx < ML + pw - 70;
-      parts.push(`<text x="${fx(right ? cx + 6 : cx - 6)}" y="${fx(Math.max(MT + 10, Math.min(MT + ph - 4, cy - 5)))}" text-anchor="${right ? "start" : "end"}" font-family="${font}" font-size="9" fill="#111111">${esc(names[i].slice(0, 14))}</text>`);
+      const name = names[i].slice(0, 14);
+      const tx = right ? cx + 6 : cx - 6;
+      const ty = Math.max(MT + 10, Math.min(MT + ph - 4, cy - 5));
+      // A white backing under the label in a re-render, so no gridline runs through it.
+      if (L.legend) parts.push(`<rect x="${fx(right ? tx - 1 : tx - name.length * 5.4 - 1)}" y="${fx(ty - 8)}" width="${fx(name.length * 5.4 + 2)}" height="10" fill="#ffffff"/>`);
+      parts.push(`<text x="${fx(tx)}" y="${fx(ty)}" text-anchor="${right ? "start" : "end"}" font-family="${font}" font-size="9" fill="#111111">${esc(name)}</text>`);
     }
   }
-  parts.push(`<text x="${ML + pw / 2}" y="${MT + ph + 30}" text-anchor="middle" font-family="${font}" font-size="10" fill="#111111">Backward linkage (Rasmussen index, 1 = average)</text>`);
-  parts.push(`<text x="13" y="${MT + ph / 2}" text-anchor="middle" font-family="${font}" font-size="10" fill="#111111" transform="rotate(-90 13 ${MT + ph / 2})">${esc(`Forward linkage (${flKind}, 1 = average)`)}</text>`);
-  const ly = MT + ph + 48;
-  parts.push(`<circle cx="${ML + 8}" cy="${ly}" r="3.5" fill="#1d4ed8"/>`);
-  parts.push(`<text x="${ML + 16}" y="${ly + 3.5}" font-family="${font}" font-size="10" fill="#111111">Sector</text>`);
-  parts.push(`<line x1="${ML + 70}" y1="${ly}" x2="${ML + 92}" y2="${ly}" stroke="#111111" stroke-dasharray="5 3"/>`);
-  parts.push(`<text x="${ML + 97}" y="${ly + 3.5}" font-family="${font}" font-size="10" fill="#111111">Index = 1 (key sectors: upper right)</text>`);
+  L.xLines.forEach((t, k) => parts.push(`<text x="${ML + pw / 2}" y="${MT + ph + 30 + 13 * k}" text-anchor="middle" font-family="${font}" font-size="10" fill="#111111">${esc(t)}</text>`));
+  L.yLines.forEach((t, k) => parts.push(`<text x="${13 + 13 * k}" y="${MT + ph / 2}" text-anchor="middle" font-family="${font}" font-size="10" fill="#111111" transform="rotate(-90 ${13 + 13 * k} ${MT + ph / 2})">${esc(t)}</text>`));
+  const ly = MT + ph + L.legendTop;
+  if (L.legend) {
+    const [a, b] = L.legend;
+    parts.push(`<circle cx="${16}" cy="${ly + a.dy}" r="3.5" fill="#1d4ed8"/>`);
+    a.lines.forEach((t, k) => parts.push(`<text x="35" y="${ly + a.dy + 3.5 + 17 * k}" font-family="${font}" font-size="10" fill="#111111">${esc(t)}</text>`));
+    parts.push(`<line x1="8" y1="${ly + b.dy}" x2="30" y2="${ly + b.dy}" stroke="#111111" stroke-dasharray="5 3"/>`);
+    b.lines.forEach((t, k) => parts.push(`<text x="35" y="${ly + b.dy + 3.5 + 17 * k}" font-family="${font}" font-size="10" fill="#111111">${esc(t)}</text>`));
+  } else {
+    parts.push(`<circle cx="${ML + 8}" cy="${ly}" r="3.5" fill="#1d4ed8"/>`);
+    parts.push(`<text x="${ML + 16}" y="${ly + 3.5}" font-family="${font}" font-size="10" fill="#111111">Sector</text>`);
+    parts.push(`<line x1="${ML + 70}" y1="${ly}" x2="${ML + 92}" y2="${ly}" stroke="#111111" stroke-dasharray="5 3"/>`);
+    parts.push(`<text x="${ML + 97}" y="${ly + 3.5}" font-family="${font}" font-size="10" fill="#111111">Index = 1 (key sectors: upper right)</text>`);
+  }
   parts.push("</svg>");
   return parts.join("");
 }

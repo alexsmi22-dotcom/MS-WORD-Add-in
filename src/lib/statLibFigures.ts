@@ -113,8 +113,12 @@ export function coefForestSvg(panels: ForestPanel[], note?: string): string | un
  */
 export function legendDecimal(label: string): string {
   const dec = label.replace(/[−-]?[\d,]+\/[\d,]+\s*≈\s*/g, "");
-  return dec.replace(/(?<![\d.,])([−-]?)(\d{4,})(\.\d+)?/g, (m, sign: string, int: string, frac: string | undefined) =>
-    `${sign}${int.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${frac ?? ""}`,
+  // A bare four-digit whole number is grouped only as a VALUE (after "=" or "≈"): in prose it is a year ("from 2024"),
+  // and "2,024" is not one (round 2).
+  return dec.replace(/(?<![\d.,])([−-]?)(\d{4,})(\.\d+)?/g, (m: string, sign: string, int: string, frac: string | undefined, at: number, all: string) =>
+    int.length === 4 && frac === undefined && !/[=≈]\s*$/.test(all.slice(0, at))
+      ? m
+      : `${sign}${int.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${frac ?? ""}`,
   );
 }
 

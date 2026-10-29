@@ -34,7 +34,7 @@
 
 import { linearAxis, logDecades, decadeLabel, fmtValue, fmtSig, trueMinus } from "./axis";
 import { planBrackets, bracketMarkup, type SigBracketSet, type BracketDisplay, type BracketPlan } from "./sigBrackets";
-import { currentFigCtx } from "./figContext";
+import { currentFigCtx, wrapLabel } from "./figContext";
 
 /**
  * Significance brackets for boxPlotSvg / groupedBarSvg. The set comes ONLY from
@@ -137,18 +137,37 @@ function canvasOf(w: number | undefined, h: number | undefined, def: { w: number
 export function distinctLabels(labels: string[], maxChars: number): string[] {
   const m = Math.max(4, Math.floor(maxChars));
   const endCut = (s: string): string => (s.length > m ? s.slice(0, m - 1).trimEnd() + "…" : s);
-  const midCut = (s: string): string => {
+  /** Cut in the middle keeping `head` characters of the start (0: only the end, "…disagree"). */
+  const cutKeeping = (s: string, head: number): string => {
     if (s.length <= m) return s;
-    const tail = Math.floor((m - 1) / 2);
-    const head = m - 1 - tail;
-    return s.slice(0, head).trimEnd() + "…" + s.slice(s.length - tail).trimStart();
+    const tail = m - 1 - head;
+    return (head ? s.slice(0, head).trimEnd() : "") + "…" + s.slice(s.length - tail).trimStart();
   };
-  const out = labels.map(endCut);
+  // Collisions are counted on FROZEN copies (round 2): counting on the array being rewritten let the first of two
+  // colliding labels change and the second then see no collision ("stron…gree" beside "strongly…"). A colliding group
+  // takes the first cut that tells ALL of its labels apart (half start and half end, then more of the end, then the
+  // end alone: "…ly agree" / "…disagree"), the same cut for every label of the group; numbered only when none does.
+  const ends = labels.map(endCut);
   const count = (arr: string[], v: string): number => arr.filter((x) => x === v).length;
-  for (let i = 0; i < out.length; i++) if (count(out, out[i]) > 1 && labels[i].length > m) out[i] = midCut(labels[i]);
+  const mids = ends.slice();
+  const heads = [m - 1 - Math.floor((m - 1) / 2), Math.floor(m / 3), 2, 0];
+  for (const e of new Set(ends)) {
+    const group = ends.flatMap((x, i) => (x === e && labels[i].length > m ? [i] : []));
+    if (count(ends, e) < 2 || group.length < 2) continue;
+    for (const h of heads) {
+      const cand = group.map((i) => cutKeeping(labels[i], h));
+      const others = ends.filter((_, i) => !group.includes(i));
+      if (new Set(cand).size === cand.length && cand.every((c) => !others.includes(c))) {
+        group.forEach((i, k) => (mids[i] = cand[k]));
+        break;
+      }
+      if (h === heads[heads.length - 1]) group.forEach((i) => (mids[i] = cutKeeping(labels[i], heads[0])));
+    }
+  }
+  const out = mids.slice();
   const seen = new Map<string, number>();
   for (let i = 0; i < out.length; i++) {
-    if (count(out, out[i]) > 1) {
+    if (count(mids, mids[i]) > 1) {
       const k = (seen.get(out[i]) ?? 0) + 1;
       seen.set(out[i], k);
       const suffix = ` (${k})`;
@@ -294,6 +313,40 @@ function axisRange(lo: number, hi: number, targetTicks = 5): AxisRange {
 }
 
 /**
+ * UNDER A FIGURE-STYLE RE-RENDER (round 2), an axis whose tick labels would run into each other at the canvas the
+ * style chose takes fewer ticks: a lower tick-count target while that gives fewer, then every other tick (zero kept).
+ * Measured with the layout audit's 0.58 em advance (`vertical`: the 0.78 em line height). As drawn: `make(5)`.
+ */
+function fitAxisTicks(make: (target: number) => AxisRange, pos: (ax: AxisRange, v: number) => number, fs: number, vertical = false): AxisRange {
+  const crowded = (ax: AxisRange): boolean => {
+    const p = ax.tickAt.map((v, i) => ({ p: pos(ax, v), w: vertical ? fs * 0.78 * 2 : ax.tickLabel[i].length * fs * 0.58 })).sort((a, b) => a.p - b.p);
+    return p.some((t, i) => i > 0 && t.p - p[i - 1].p < (t.w + p[i - 1].w) / 2 + 3);
+  };
+  let ax = make(5);
+  if (!currentFigCtx() || !crowded(ax)) return ax;
+  for (let t = 4; t >= 2; t--) {
+    const a = make(t);
+    if (a.tickAt.length < ax.tickAt.length && a.tickAt.length >= 2) ax = a;
+    if (!crowded(ax)) return ax;
+  }
+  for (let guard = 0; guard < 6 && crowded(ax) && ax.tickAt.length > 2; guard++) {
+    const z = ax.tickAt.findIndex((v) => v === 0);
+    const parity = z >= 0 ? z % 2 : 0;
+    const keep = (_: unknown, i: number): boolean => i % 2 === parity;
+    const tickAt = ax.tickAt.filter(keep);
+    if (tickAt.length < 2) break;
+    ax = { ...ax, tickAt, tickLabel: ax.tickLabel.filter(keep) };
+  }
+  return ax;
+}
+
+/** A title's lines: one as drawn; under a figure-style re-render, wrapped to the canvas (two lines at most). */
+function titleLinesFor(title: string | undefined, room: number, fs: number): string[] {
+  if (!title) return [];
+  return currentFigCtx() ? wrapLabel(title, room, fs) : [title];
+}
+
+/**
  * The axis title with the row's ×10ⁿ, stated ONCE (never on every tick, where
  * it widens labels past a fixed margin and into the title). No title → the
  * multiplier alone takes the title's place.
@@ -397,7 +450,8 @@ export function boxPlotSvg(
   const stats = shown.map((g) => boxStats(g.values));
   const ML = 52;
   const MR = 14;
-  const MT = opts.title ? 26 : 12;
+  const tLines = titleLinesFor(opts.title, W - 8, 12);
+  const MT = opts.title ? 26 + 15 * (tLines.length - 1) : 12;
   const pw = W - ML - MR;
 
   // WHEN THE SLOT IS NARROWER THAN THE LABEL, ROTATE. Measured against the
@@ -427,19 +481,22 @@ export function boxPlotSvg(
   // Brackets (optional): planned on the same slot centres the boxes use; groups
   // beyond the 12-box cap have no centre and are counted in the clipped note.
   const bp = planIfAny(opts.brackets, groups.length, (k) => (k < shown.length ? ML + (pw / shown.length) * (k + 0.5) : null));
-  const ax = bp && bp.levels ? axisWithHeadroom(lo, hi, ph, bp.heightPx) : axisRange(lo, hi, 5);
+  const ax =
+    bp && bp.levels
+      ? axisWithHeadroom(lo, hi, ph, bp.heightPx)
+      : fitAxisTicks((t) => axisRange(lo, hi, t), (a, v) => MT + ph - ((v / 2 - a.mid) / a.half) * ph, 10, true);
   const y = (v: number): number => MT + ph - ((v / 2 - ax.mid) / ax.half) * ph;
 
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
     `<rect width="${W}" height="${H}" fill="${PAPER}"/>`,
   ];
-  if (opts.title) {
+  tLines.forEach((line, i) =>
     parts.push(
-      `<text data-figure-title="1" x="${W / 2}" y="17" text-anchor="middle" font-family="Segoe UI, Arial" ` +
-        `font-size="12" fill="${INK}">${esc(opts.title)}</text>`,
-    );
-  }
+      `<text data-figure-title="1" x="${W / 2}" y="${17 + 15 * i}" text-anchor="middle" font-family="Segoe UI, Arial" ` +
+        `font-size="12" fill="${INK}">${esc(line)}</text>`,
+    ),
+  );
 
   for (const [ti, t] of ax.tickAt.entries()) {
     const yy = y(t);
@@ -591,9 +648,11 @@ export function forestPlotSvg(
   const shown = rows.slice(0, CAP);
   const clipped = rows.length - shown.length;
   const ROW_H = 20;
-  const MT = opts.title ? 28 : 14;
-  const MB = 40;
-  const H = MT + Math.max(1, shown.length) * ROW_H + MB;
+  // Under a figure-style re-render the title and the axis title wrap to the canvas (titleLinesFor; as drawn, one line).
+  const tLines = titleLinesFor(opts.title, W - 8, 12);
+  const MT = opts.title ? 28 + 15 * (tLines.length - 1) : 14;
+  let MB = 40;
+  let H = MT + Math.max(1, shown.length) * ROW_H + MB;
 
   const zero = Number.isFinite(opts.zero as number) ? (opts.zero as number) : 0;
   const finite = shown.filter(
@@ -614,19 +673,23 @@ export function forestPlotSvg(
 
   const lo = Math.min(zero, ...finite.map((r) => r.low));
   const hi = Math.max(zero, ...finite.map((r) => r.high));
-  const ax = axisRange(lo, hi, 5);
+  const ax = fitAxisTicks((t) => axisRange(lo, hi, t), (a, v) => ML + ((v / 2 - a.mid) / a.half) * pw, 10);
   const x = (v: number): number => ML + ((v / 2 - ax.mid) / ax.half) * pw;
+  const xTitle = titleWithMultiplier(opts.xlabel, ax.multiplier);
+  const xLines = titleLinesFor(xTitle, 2 * Math.min(ML + pw / 2, W - ML - pw / 2) - 4, 10);
+  MB += 13 * Math.max(0, xLines.length - 1);
+  H += 13 * Math.max(0, xLines.length - 1);
 
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
     `<rect width="${W}" height="${H}" fill="${PAPER}"/>`,
   ];
-  if (opts.title) {
+  tLines.forEach((line, i) =>
     parts.push(
-      `<text data-figure-title="1" x="${W / 2}" y="18" text-anchor="middle" font-family="Segoe UI, Arial" ` +
-        `font-size="12" fill="${INK}">${esc(opts.title)}</text>`,
-    );
-  }
+      `<text data-figure-title="1" x="${W / 2}" y="${18 + 15 * i}" text-anchor="middle" font-family="Segoe UI, Arial" ` +
+        `font-size="12" fill="${INK}">${esc(line)}</text>`,
+    ),
+  );
 
   const yBase = MT + shown.length * ROW_H;
   for (const [ti, t] of ax.tickAt.entries()) {
@@ -669,13 +732,12 @@ export function forestPlotSvg(
     );
   });
 
-  const xTitle = titleWithMultiplier(opts.xlabel, ax.multiplier);
-  if (xTitle) {
+  xLines.forEach((line, i) =>
     parts.push(
-      `<text x="${ML + pw / 2}" y="${H - 8}" text-anchor="middle" ` +
-        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(xTitle)}</text>`,
-    );
-  }
+      `<text x="${ML + pw / 2}" y="${H - 8 - 13 * (xLines.length - 1 - i)}" text-anchor="middle" ` +
+        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(line)}</text>`,
+    ),
+  );
   if (clipped > 0) {
     parts.push(
       `<text x="${W - MR}" y="${H - 8}" text-anchor="end" font-family="Segoe UI, Arial" ` +
@@ -755,9 +817,9 @@ function forestPlotLogSvg(
   const shown = rows.slice(0, CAP);
   const clipped = rows.length - shown.length;
   const ROW_H = 20;
-  const MT = opts.title ? 28 : 14;
-  const MB = 40;
-  const H = MT + Math.max(1, shown.length) * ROW_H + MB;
+  const tLines = titleLinesFor(opts.title, W - 8, 12);
+  const MT = opts.title ? 28 + 15 * (tLines.length - 1) : 14;
+  let H = MT + Math.max(1, shown.length) * ROW_H + 40;
 
   const ref = Number.isFinite(opts.zero as number) ? (opts.zero as number) : 1;
   if (!(ref > 0)) return emptyChart(W, H, `Log axis: the reference line ${fmt(ref)} is not positive`);
@@ -794,17 +856,31 @@ function forestPlotLogSvg(
   const pw = W - ML - MR;
   const span = ax.decHi - ax.decLo;
   const x = (v: number): number => ML + ((Math.log10(v) - ax.decLo) / span) * pw;
+  // Under a figure-style re-render: crowded decade labels thinned (every other, 1 kept), the axis title wrapped.
+  let labelled = ax.labelled;
+  if (currentFigCtx()) {
+    const crowded = (ls: { v: number; text: string }[]): boolean =>
+      ls.some((l, i) => i > 0 && x(l.v) - x(ls[i - 1].v) < ((l.text.length + ls[i - 1].text.length) * 10 * 0.58) / 2 + 3);
+    for (let guard = 0; guard < 6 && labelled.length > 2 && crowded(labelled); guard++) {
+      const one = labelled.findIndex((l) => l.v === 1);
+      const parity = one >= 0 ? one % 2 : 0;
+      labelled = labelled.filter((_, i) => i % 2 === parity);
+    }
+  }
+  const xText = `${opts.xlabel ?? "ratio"} (log scale)`;
+  const xLines = titleLinesFor(xText, 2 * Math.min(ML + pw / 2, W - ML - pw / 2) - 4, 10);
+  H += 13 * Math.max(0, xLines.length - 1);
 
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
     `<rect width="${W}" height="${H}" fill="${PAPER}"/>`,
   ];
-  if (opts.title) {
+  tLines.forEach((line, i) =>
     parts.push(
-      `<text data-figure-title="1" x="${W / 2}" y="18" text-anchor="middle" font-family="Segoe UI, Arial" ` +
-        `font-size="12" fill="${INK}">${esc(opts.title)}</text>`,
-    );
-  }
+      `<text data-figure-title="1" x="${W / 2}" y="${18 + 15 * i}" text-anchor="middle" font-family="Segoe UI, Arial" ` +
+        `font-size="12" fill="${INK}">${esc(line)}</text>`,
+    ),
+  );
   const yBase = MT + shown.length * ROW_H;
   // Decade gridlines (faint) and minor ticks on the baseline.
   for (const v of ax.major) {
@@ -817,7 +893,7 @@ function forestPlotLogSvg(
       `<line x1="${x(v).toFixed(1)}" y1="${yBase}" x2="${x(v).toFixed(1)}" y2="${yBase + 3}" stroke="${RULE}" stroke-width="1"/>`,
     );
   }
-  for (const l of ax.labelled) {
+  for (const l of labelled) {
     parts.push(
       `<text x="${x(l.v).toFixed(1)}" y="${yBase + 15}" text-anchor="middle" ` +
         `font-family="Segoe UI, Arial" font-size="10" fill="${GREY}">${esc(l.text)}</text>`,
@@ -855,9 +931,11 @@ function forestPlotLogSvg(
     );
   });
 
-  parts.push(
-    `<text x="${ML + pw / 2}" y="${H - 8}" text-anchor="middle" ` +
-      `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(`${opts.xlabel ?? "ratio"} (log scale)`)}</text>`,
+  xLines.forEach((line, i) =>
+    parts.push(
+      `<text x="${ML + pw / 2}" y="${H - 8 - 13 * (xLines.length - 1 - i)}" text-anchor="middle" ` +
+        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(line)}</text>`,
+    ),
   );
   if (clipped > 0) {
     parts.push(
@@ -907,7 +985,8 @@ export function groupedBarSvg(
 
   const ML = 50;
   const MR = 12;
-  const MT = opts.title ? 26 : 12;
+  const tLines = titleLinesFor(opts.title, W - 8, 12);
+  const MT = opts.title ? 26 + 15 * (tLines.length - 1) : 12;
   const MB = 46;
   const pw = W - ML - MR;
   const ph = H - MT - MB;
@@ -921,19 +1000,22 @@ export function groupedBarSvg(
   // Brackets compare CATEGORIES (bars of a one-series means chart); categories
   // beyond the 16 cap have no centre and are counted in the clipped note.
   const bp = planIfAny(opts.brackets, categories.length, (k) => (k < cats.length ? ML + (pw / cats.length) * (k + 0.5) : null));
-  const ax = bp && bp.levels ? axisWithHeadroom(lo, hi, ph, bp.heightPx) : axisRange(lo, hi, 5);
+  const ax =
+    bp && bp.levels
+      ? axisWithHeadroom(lo, hi, ph, bp.heightPx)
+      : fitAxisTicks((t) => axisRange(lo, hi, t), (a, v) => MT + ph - ((v / 2 - a.mid) / a.half) * ph, 10, true);
   const y = (v: number): number => MT + ph - ((v / 2 - ax.mid) / ax.half) * ph;
 
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
     `<rect width="${W}" height="${H}" fill="${PAPER}"/>`,
   ];
-  if (opts.title) {
+  tLines.forEach((line, i) =>
     parts.push(
-      `<text data-figure-title="1" x="${W / 2}" y="17" text-anchor="middle" font-family="Segoe UI, Arial" ` +
-        `font-size="12" fill="${INK}">${esc(opts.title)}</text>`,
-    );
-  }
+      `<text data-figure-title="1" x="${W / 2}" y="${17 + 15 * i}" text-anchor="middle" font-family="Segoe UI, Arial" ` +
+        `font-size="12" fill="${INK}">${esc(line)}</text>`,
+    ),
+  );
   for (const [ti, t] of ax.tickAt.entries()) {
     const yy = y(t);
     parts.push(`<line x1="${ML}" y1="${yy.toFixed(1)}" x2="${ML + pw}" y2="${yy.toFixed(1)}" stroke="${FAINT}" stroke-width="1"/>`);
@@ -964,8 +1046,9 @@ export function groupedBarSvg(
   const palette = [BLUE, RED, "#059669", "#d97706", "#7c3aed", "#0891b2", "#be185d", "#4d7c0f"];
   const slot = pw / cats.length;
   const bw = Math.max(2, Math.min(18, (slot * 0.7) / series.length));
-  // Category names cut at 10 characters with an ellipsis (they were cut with none) and kept distinct.
-  const catLabels = distinctLabels(cats, 10);
+  // Category names cut at 10 characters with an ellipsis (they were cut with none) and kept distinct; under a
+  // figure-style re-render, to what the slot holds at 9 px (round 2: they ran into each other at a narrow column).
+  const catLabels = distinctLabels(cats, currentFigCtx() ? Math.min(10, Math.floor((slot - 4) / (9 * 0.58))) : 10);
   cats.forEach((cat, i) => {
     const cx = ML + slot * (i + 0.5);
     series.forEach((s, k) => {

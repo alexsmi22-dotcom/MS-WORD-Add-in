@@ -118,14 +118,26 @@ export const RENDER_BUDGET_MESSAGE =
  * runs these calculators several times slower than the production bundle, and a loaded test machine must not turn a
  * compliance gate into a timing test.
  */
-export function figureRenderer(
-  compute: () => string | undefined | null,
-  budgetMs: number = RENDER_BUDGET_MS,
-): (w: number, style?: FigureStylePreset, widthMm?: number) => string {
+export type FigureRenderFn = ((w: number, style?: FigureStylePreset, widthMm?: number) => string) & {
+  /**
+   * Starts a new style fit (insertCapability.prepareFigure / composePanelFigure call it before renderAtPreset): the
+   * time budget and the layout memos are per FIT, not per renderer (round 2: the budget accumulated across every styled
+   * insert of one preview, so a 120 ms calculator was refused on its 18th insert).
+   */
+  beginFit: () => void;
+};
+
+/** Starts a new style fit on `render` when it is a figureRenderer (anything else has no budget to reset). */
+export function beginFigureFit(render: unknown): void {
+  const f = render as { beginFit?: unknown } | null | undefined;
+  if (f && typeof f.beginFit === "function") (f.beginFit as () => void)();
+}
+
+export function figureRenderer(compute: () => string | undefined | null, budgetMs: number = RENDER_BUDGET_MS): FigureRenderFn {
   // One memo per (style, printed width): the renders of one style fit share their layout decisions (stickyLayout).
   const memos = new Map<string, Map<string, number>>();
   let spent = 0;
-  return (w: number, style?: FigureStylePreset, widthMm?: number): string => {
+  const fn = (w: number, style?: FigureStylePreset, widthMm?: number): string => {
     if (spent > budgetMs) throw new Error(RENDER_BUDGET_MESSAGE);
     const t0 = Date.now();
     try {
@@ -134,6 +146,12 @@ export function figureRenderer(
       spent += Date.now() - t0;
     }
   };
+  return Object.assign(fn, {
+    beginFit: (): void => {
+      spent = 0;
+      memos.clear();
+    },
+  });
   function renderOnce(w: number, style?: FigureStylePreset, widthMm?: number): string {
     let memo: Map<string, number> | undefined;
     if (style && widthMm !== undefined) {
@@ -327,6 +345,13 @@ export function blackAndWhite(svg: string, hatching = true): string {
     if (sv !== undefined && !BW_PAINT_OK.test(sv.trim()) && /^(line|path|polyline)$/.test(tag) && get("stroke-dasharray") === undefined) {
       const dash = dashOf(sv);
       if (dash) a += ` stroke-dasharray="${dash}"`;
+      else if (!inDefs && !saturated(sv) && (luminance(sv) ?? 0) >= 0.55) {
+        // A LIGHT GREY rule (a gridline, a faint guide) stays light (round 2): a thin dotted black line, not a full
+        // black one that reads as data (io-leontief's grid, the forest plot's decade lines).
+        a += ` stroke-dasharray="1 2"`;
+        if (get("stroke-width") !== undefined) set("stroke-width", "0.5");
+        else a += ` stroke-width="0.5"`;
+      }
     }
     for (const p of ["stroke", "stop-color", "color", "flood-color", "lighting-color"]) {
       const v = get(p);
@@ -429,5 +454,138 @@ export function styleFigure(svg: string, style: FigureStylePreset | null): strin
   if (style.color === "bw") s = supSubAll(blackAndWhite(s));
   const { min, max } = style.sizesPt;
   if (max !== null && min > 0) s = fitTextBand(s, (max / min) * 0.985);
+  // A title the style prints (USPTO strips it) that is wider than the canvas wraps onto two lines (round 2).
+  if (style.allowTitle) s = wrapFigureTitle(s);
   return s;
+}
+
+/**
+ * A figure title (the one `data-figure-title` text) wider than its room on the canvas, set on TWO lines (the second
+ * cut with an ellipsis only if it still does not fit), with the rest of the figure moved down a line and the canvas
+ * grown by it. For the builders that draw a one-line title at a fixed size (box, forest, bar and ladder charts…):
+ * at a narrow style width it ran off both edges. A title that fits, or two title lines already, is left as it is.
+ */
+export function wrapFigureTitle(svg: string): string {
+  const titles = [...svg.matchAll(/<text\b([^>]*\bdata-figure-title="1"[^>]*)>([^<]*)<\/text>/g)];
+  if (titles.length !== 1 || (svg.match(/data-figure-title="1"/g) ?? []).length !== 1) return svg;
+  const m = titles[0];
+  const attrs = m[1];
+  const num = (k: string): number => Number(new RegExp(`\\s${k}="(-?[\\d.]+)`).exec(attrs)?.[1] ?? NaN);
+  const x = num("x");
+  const y = num("y");
+  const fs = num("font-size");
+  const root = /^\s*<svg\b[^>]*>/.exec(svg);
+  if (!root || !Number.isFinite(x) || !Number.isFinite(y) || !(fs > 0)) return svg;
+  const vb = /\sviewBox="\s*(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(root[0]);
+  const W = vb ? Number(vb[1]) + Number(vb[3]) : Number(/\swidth="([\d.]+)/.exec(root[0])?.[1] ?? NaN);
+  const H = vb ? Number(vb[4]) : Number(/\sheight="([\d.]+)/.exec(root[0])?.[1] ?? NaN);
+  if (!(W > 0) || !(H > 0)) return svg;
+  const text = unescText(m[2]);
+  const anchor = /\stext-anchor="(\w+)"/.exec(attrs)?.[1] ?? "start";
+  const room = anchor === "middle" ? 2 * Math.min(x, W - x) - 4 : anchor === "end" ? x - 2 : W - x - 2;
+  if (text.length * fs * 0.58 <= room) return svg;
+  const lines = wrapLabel(text, room, fs);
+  if (lines.length < 2) return svg.split(m[0]).join(`<text${attrs}>${escText(lines[0])}</text>`);
+  const lh = Math.round(fs * 1.2 * 10) / 10;
+  const dy = Math.round(lh * (lines.length - 1) * 10) / 10;
+  // Inside the moved group the title's own lines are moved back up, so they stay at the top.
+  const setY = (v: number): string => attrs.replace(/(\sy=")-?[\d.]+(")/, `$1${Math.round(v * 10) / 10}$2`);
+  // Every line carries the title mark, so a style without titles strips them all and a second pass leaves them alone.
+  const two = lines.map((l, i) => `<text${setY(y - dy + i * lh)}>${escText(l)}</text>`).join("");
+  let body = svg.slice(root[0].length).split(m[0]).join(two);
+  body = body.replace(/<\/svg>\s*$/, "");
+  // The paper (a full-canvas rect drawn first) grows with the canvas instead of moving.
+  let paper = "";
+  const bg = /^\s*<rect\b([^>]*)\/>/.exec(body);
+  if (bg && !/\s(x|y)="(?!0")/.test(bg[1]) && Number(/\sheight="([\d.]+)/.exec(bg[1])?.[1]) >= H - 0.5) {
+    paper = `<rect${bg[1].replace(/(\sheight=")[\d.]+(")/, `$1${H + dy}$2`)}/>`;
+    body = body.slice(bg[0].length);
+  }
+  let open = root[0].replace(/(\sheight=")([\d.]+)(")/, (_a, p: string, v: string, q: string) => `${p}${Number(v) + dy}${q}`);
+  if (vb) open = open.replace(/(\sviewBox="\s*-?[\d.]+[\s,]+-?[\d.]+[\s,]+[\d.]+[\s,]+)([\d.]+)/, (_a, p: string, v: string) => `${p}${Number(v) + dy}`);
+  return `${open}${paper}<g transform="translate(0,${dy})">${body}</g></svg>`;
+}
+
+/** The layout ctxFrameLayout returns: margins, wrapped axis titles, and (under a re-render) the legend's rows. */
+export interface CtxFrameLayout {
+  ML: number;
+  MB: number;
+  xLines: string[];
+  yLines: string[];
+  /** null as drawn (the caller draws its legend as it always did); else one entry per item, in order. */
+  legend: { lines: string[]; dy: number }[] | null;
+  /** Below the plot frame: where the first legend row's centre is (as drawn: the caller's own offset). */
+  legendTop: number;
+}
+
+/**
+ * For a builder that draws its own plot frame (10 px axis titles at x = 13 rotated and under the frame at +30, a legend
+ * row under that at +48): under a figure-style re-render (round 2) the axis titles wrap to the canvas (the y title's
+ * second line 13 px further right, so the left margin grows by 13), and the legend takes ONE ROW PER ITEM from x = 8,
+ * text at x = 35, each item wrapped to the canvas (17 px a line). As drawn: the base margins, one line each, legend null.
+ */
+export function ctxFrameLayout(W: number, xTitle: string, yTitle: string, legendItems: string[], base: { ML: number; MB: number }): CtxFrameLayout {
+  if (!ctx) return { ML: base.ML, MB: base.MB, xLines: [xTitle], yLines: [yTitle], legend: null, legendTop: 48 };
+  const ML = base.ML + 13;
+  const pw = W - ML - 14;
+  const xLines = wrapLabel(xTitle, 2 * Math.min(ML + pw / 2, W - ML - pw / 2) - 4, 10);
+  // The plot is at least 0.6 as tall as it is wide (the callers' rule); the y title stays inside that height, clear of
+  // the figure title above.
+  const yLines = wrapLabel(yTitle, 0.6 * pw, 10);
+  const legendTop = 48 + 13 * (xLines.length - 1);
+  let at = 0;
+  const legend = legendItems.map((t) => {
+    const lines = wrapLabel(t, W - 35 - 4, 10);
+    const row = { lines, dy: at };
+    at += 17 * lines.length;
+    return row;
+  });
+  // Each y-title line past the first is 13 px further right; the margin grows by all of them.
+  return { ML: base.ML + 13 * (yLines.length - 1), MB: legendTop + at - 17 + 14, xLines, yLines, legend, legendTop };
+}
+
+/**
+ * An axis title in lines that fit `room` px at `fs` px (the layout audit's 0.58 em advance): one line when it fits,
+ * else two broken at the space that best balances them, the second cut with an ellipsis if it still does not fit.
+ * `minLines` 2 keeps a title that was wrapped on two lines even when one would now fit.
+ */
+export function wrapLabel(text: string, room: number, fs: number, minLines = 1): string[] {
+  const max = Math.max(4, Math.floor(room / (0.58 * fs)));
+  if (text.length <= max && minLines < 2) return [text];
+  const spaces: number[] = [];
+  for (let i = 1; i < text.length - 1; i++) if (text[i] === " ") spaces.push(i);
+  if (!spaces.length) return text.length <= max ? [text] : [text.slice(0, max - 1) + "…"];
+  // The break whose longer line is shortest, among breaks whose first line fits.
+  let best = -1;
+  let bestLen = Infinity;
+  for (const i of spaces) {
+    const a = i;
+    const b = text.length - i - 1;
+    if (a > max) continue;
+    if (Math.max(a, b) < bestLen) {
+      bestLen = Math.max(a, b);
+      best = i;
+    }
+  }
+  if (best < 0) return [text.slice(0, max - 1) + "…"];
+  const first = text.slice(0, best).trimEnd();
+  let rest = text.slice(best + 1).trim();
+  if (rest.length <= max) return [first, rest];
+  // Two lines are not enough: up to three, filled greedily (so a unit at the end, "(%)", is not cut), the third cut
+  // with an ellipsis only if even that does not fit.
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of text.split(" ")) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length > max && cur) {
+      lines.push(cur);
+      cur = w;
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  if (lines.length <= 3 && lines.every((l) => l.length <= max)) return lines;
+  const three = lines.slice(0, 3).map((l) => (l.length > max ? l.slice(0, max - 1) + "…" : l));
+  if (lines.length > 3) three[2] = (three[2].length >= max ? three[2].slice(0, max - 1) : three[2]).trimEnd() + "…";
+  rest = rest.slice(0, max - 1).trimEnd() + "…";
+  return three.length ? three : [first, rest];
 }

@@ -50,6 +50,7 @@ import { studentizedRangeP, studentizedRangeCritical, type TukeyResult } from ".
 import type { DunnComparison } from "./nonparametric";
 import { tTestP, type TTestResult } from "./stats";
 import { adjustPValues, type RankTestResult, type CorrectionMethod } from "./stats2";
+import { pVerdict } from "./calcReading";
 
 const BRAND: unique symbol = Symbol("sigBracket");
 const SET_BRAND: unique symbol = Symbol("sigBracketSet");
@@ -370,17 +371,29 @@ export function starsForAt(p: number, alpha: number): string {
 }
 
 /**
+ * THE ONE SIGNIFICANCE PREDICATE for everything a bracket shows (round 2): its mark (stars or "ns"), whether "Hide ns"
+ * hides it, the caption's count of hidden brackets, and its p label. Significant when the ENGINE said so AND the p as
+ * the text prints it (three decimals) reads significant under calcReading.ts pVerdict's rule: a pair whose p prints
+ * "0.050" is "at the 5% boundary" in the text beside the figure, never significant, so it is "ns" here too.
+ */
+export function shownSignificant(b: SigBracket, alpha: number): boolean {
+  if (!b.significant) return false;
+  return !printedAtOrAboveAlpha(b.p, alpha);
+}
+
+/** p prints (three decimals, as the text prints it) at or above α although it is below: the boundary case. */
+function printedAtOrAboveAlpha(p: number, alpha: number): boolean {
+  return validP(p) && p >= 0.001 && pVerdict(p.toFixed(3), alpha) !== "clear";
+}
+
+/**
  * The mark a bracket shows: "ns" exactly when the ENGINE said not significant, so
  * the figure and the text agree for every pair. A pair the engine called
  * significant whose p sits on the α boundary (Tukey's flag is q > qCritical, and
  * the critical value is found by bisection) takes the weakest band's mark.
  */
 export function markFor(b: SigBracket, alpha: number): string {
-  if (!b.significant) return "ns";
-  // DECIDED ON THE PRINTED p (2026-10-28, calcReading.ts pVerdict's rule): the text prints p to three decimals, and a
-  // pair whose p prints ".050" is "at the 5% boundary" there, never significant. A star on that pair would contradict
-  // the sentence beside the figure, so it shows "ns" like any pair the text does not call significant.
-  if (validP(b.p) && b.p >= 0.001 && Number(b.p.toFixed(3)) >= alpha) return "ns";
+  if (!shownSignificant(b, alpha)) return "ns";
   const bands = markBands(alpha);
   for (const t of bands) if (b.p < t.below) return t.stars;
   return bands[bands.length - 1].stars;
@@ -422,9 +435,14 @@ function correctionName(c: SigBracketSet["correction"]): string {
 export function bracketLegend(set: SigBracketSet, display: BracketDisplay = {}): string {
   if (!isSigBracketSet(set)) throw new TypeError("not a bracket set built by sigBrackets");
   const parts: string[] = [];
+  // A significant-by-the-engine pair whose p PRINTS at α (0.049998 → "0.050") is shown as not significant; the caption
+  // says so, or "* p < 0.05 … ns p ≥ 0.05" would contradict the "ns" over a p below 0.05.
+  const boundary = set.brackets.some((b) => b.significant && !shownSignificant(b, set.alpha));
   if ((display.label ?? "stars") === "stars") {
     const marks = markBands(set.alpha).slice().reverse().map((t) => `${t.stars} p < ${t.below}`);
-    parts.push(`${marks.join("; ")}; ns p ≥ ${set.alpha}`);
+    parts.push(`${marks.join("; ")}; ns p ≥ ${set.alpha}${boundary ? ` (p as printed to three decimals: a p that prints ${set.alpha.toFixed(3)} is at the threshold, not below it)` : ""}`);
+  } else if (boundary) {
+    parts.push(`A p that prints ${set.alpha.toFixed(3)} is at the ${set.alpha} threshold, not below it`);
   }
   const tests = Array.from(new Set(set.brackets.map((b) => b.test)));
   const n = set.brackets.length;
@@ -440,7 +458,7 @@ export function bracketLegend(set: SigBracketSet, display: BracketDisplay = {}):
     parts.push(tests.join(", "));
   }
   if (display.showNs === false) {
-    const hidden = set.brackets.filter((b) => !b.significant).length;
+    const hidden = set.brackets.filter((b) => !shownSignificant(b, set.alpha)).length;
     if (hidden) parts.push(`${hidden} non-significant comparison${hidden === 1 ? "" : "s"} not shown`);
   }
   return parts.join(". ") + ".";
@@ -542,7 +560,7 @@ export function planBrackets(set: SigBracketSet, chartGroups: number, xOf: (inde
     if (b.j >= chartGroups) {
       throw new RangeError(`bracket (${b.i}, ${b.j}) refers to group ${b.j}, but the chart has ${chartGroups} groups`);
     }
-    if (!showNs && !b.significant) {
+    if (!showNs && !shownSignificant(b, set.alpha)) {
       hiddenNs++;
       continue;
     }
@@ -552,7 +570,9 @@ export function planBrackets(set: SigBracketSet, chartGroups: number, xOf: (inde
       offChart++;
       continue;
     }
-    const label = mode === "p" ? formatPValue(b.p, set.alpha) : markFor(b, set.alpha);
+    // A p that prints at α in the text is labelled as the text prints it ("p = 0.050"), not with the extra digits
+    // formatPValue adds to keep it below the threshold ("p = 0.049998").
+    const label = mode === "p" ? (b.significant && !shownSignificant(b, set.alpha) ? `p = ${b.p.toFixed(3)}` : formatPValue(b.p, set.alpha)) : markFor(b, set.alpha);
     const fontPx = mode === "p" || label === "ns" ? BRACKET_FONT_PX.p : BRACKET_FONT_PX.stars;
     items.push({ bracket: b, x1: Math.min(x1, x2), x2: Math.max(x1, x2), label, fontPx, level: 0 });
   }

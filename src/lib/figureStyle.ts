@@ -1296,7 +1296,8 @@ export function renderAtPreset(render: (canvasWidth: number, preset: FigureStyle
     check = checkSvgAgainstPreset(svg, preset, widthMm);
     const after = measureSvgText(svg, widthMm).rootWidthUser;
     if (Math.abs(after - before) < 0.005) {
-      reason = `the builder ignored the requested canvas width (${w}); it always draws ${after} units wide`;
+      // In the user's words (round 2): "the builder ignored the requested canvas width (172.46)" was developer jargon.
+      reason = `this figure's layout has a fixed width and cannot be redrawn narrower, so its text cannot reach this style's size in this column; choose a wider column (double) or As drawn`;
       break;
     }
   }

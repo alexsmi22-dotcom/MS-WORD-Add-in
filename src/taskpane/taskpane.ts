@@ -12597,7 +12597,9 @@ function updateStatsPreview(): void {
         if (!again.ok) throw new Error(again.error);
         return again.svg;
       });
-      currentStatsRender = (w: number, style?: FigureStylePreset): string => redraw(w, style);
+      // The renderer itself, not a wrapper: it takes the printed width too (each style fit's layout memo is keyed on it)
+      // and carries the per-fit budget reset prepareFigure calls (round 2).
+      currentStatsRender = redraw;
     } else if (!fig.ok) {
       bracketErr = `${fig.error} Or turn brackets off.`;
     }

@@ -703,7 +703,8 @@ export function marketFigureSvg(spec: MarketSpec, r: MarketOutcome, labels: Mark
   });
   const xTitle = `Quantity Q (${labels.qunit})${xRow.multiplier ? ` (${xRow.multiplier})` : ""}`;
   const yTitle = `Price P (${labels.cur} per ${labels.qunit})${yRow.multiplier ? ` (${yRow.multiplier})` : ""}`;
-  out.push(`<text x="${ML + pw / 2}" y="${H - 10}" text-anchor="middle" font-size="11" fill="${COLORS.ink}">${esc(xTitle)}</text>`);
+  // Under the frame, above the legend when the legend is below it (round 2: at H − 10 it sat on the legend's last row).
+  out.push(`<text x="${ML + pw / 2}" y="${fctx ? MT + ph + MB - 10 : H - 10}" text-anchor="middle" font-size="11" fill="${COLORS.ink}">${esc(xTitle)}</text>`);
   const ycx = 14;
   const ycy = MT + ph / 2;
   out.push(`<text x="${ycx}" y="${ycy}" text-anchor="middle" font-size="11" fill="${COLORS.ink}" transform="rotate(-90 ${ycx} ${ycy})">${esc(yTitle)}</text>`);
@@ -717,7 +718,8 @@ export function marketFigureSvg(spec: MarketSpec, r: MarketOutcome, labels: Mark
           : spec.policy === "ceiling"
             ? "Supply and demand with a price ceiling"
             : "Supply and demand with a price floor";
-  out.push(`<text x="${f2(W / 2)}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="${COLORS.ink}">${esc(title)}</text>`);
+  // Marked as the title (round 2), so a style without titles (USPTO) leaves it out and one with them wraps it.
+  out.push(`<text data-figure-title="1" x="${f2(W / 2)}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="${COLORS.ink}">${esc(title)}</text>`);
 
   // Legend in the right gutter (below the plot under a figure-style re-render).
   const legY = fctx ? MT + ph + MB : MT;

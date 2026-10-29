@@ -25,7 +25,7 @@
  * measure but Gini (Theil T and the Atkinson family take logs or fractional powers of the income).
  */
 import { ratAdd, ratMul, ratSub, ratDiv, ratFromNumber, ratToNumber, RAT_ZERO, type Rat } from "./cas";
-import { ctxCanvas } from "./figContext";
+import { ctxCanvas, ctxFrameLayout } from "./figContext";
 
 export interface IneqInput {
   /** Incomes (or group means). */
@@ -280,14 +280,18 @@ const pctTick = (v: number): string => (v < 0 ? "−" : "") + String(Math.round(
 export const LORENZ_DRAW_MAX = 1200;
 
 export function lorenzSvg(points: { p: number; L: number }[], giniText: string, grouped: boolean): string {
-  const ML = 52;
-  const MR = 14;
-  const MT = 26;
-  const MB = 78;
   // At the figure context's width under a figure-style re-render (lib/figContext.ts), the plot kept at least 0.6 as
-  // tall as it is wide; outside one, 400 × 330 as always.
+  // tall as it is wide; outside one, 400 × 330 as always. Under a re-render (round 2) the axis titles wrap and the
+  // legend takes a row per item (ctxFrameLayout): they ran off a 75 mm column.
   const cv = ctxCanvas(400, 330);
   const W = cv.w;
+  const xT = grouped ? "Cumulative share of population, poorest group first (%)" : "Cumulative share of population, poorest first (%)";
+  const shadeT = `Shaded area = G/2 (Gini G = ${giniText})`;
+  const LY = ctxFrameLayout(W, xT, "Cumulative share of income (%)", ["Lorenz curve", "Line of equality", shadeT], { ML: 52, MB: 78 });
+  const ML = LY.ML;
+  const MR = 14;
+  const MT = 26;
+  const MB = LY.MB;
   const H = Math.max(cv.h, Math.round(MT + MB + 0.6 * (W - ML - MR)));
   const pw = W - ML - MR;
   const ph = H - MT - MB;
@@ -325,9 +329,19 @@ export function lorenzSvg(points: { p: number; L: number }[], giniText: string, 
   parts.push(`<polygon points="${curve} ${f(X(1))},${f(Y(1))} ${f(X(0))},${f(Y(0))}" fill="${SHADE}" fill-opacity="0.55" stroke="none"/>`);
   parts.push(`<line x1="${f(X(0))}" y1="${f(Y(0))}" x2="${f(X(1))}" y2="${f(Y(1))}" stroke="${INK}" stroke-width="1.2" stroke-dasharray="5 3"/>`);
   parts.push(`<polyline points="${curve}" fill="none" stroke="${BLUE}" stroke-width="2"/>`);
-  parts.push(`<text x="${ML + pw / 2}" y="${MT + ph + 30}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="${INK}">${esc(grouped ? "Cumulative share of population, poorest group first (%)" : "Cumulative share of population, poorest first (%)")}</text>`);
-  parts.push(`<text x="13" y="${MT + ph / 2}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="${INK}" transform="rotate(-90 13 ${MT + ph / 2})">Cumulative share of income (%)</text>`);
-  // Legend under the frame.
+  LY.xLines.forEach((t, k) => parts.push(`<text x="${ML + pw / 2}" y="${MT + ph + 30 + 13 * k}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="${INK}">${esc(t)}</text>`));
+  LY.yLines.forEach((t, k) => parts.push(`<text x="${13 + 13 * k}" y="${MT + ph / 2}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="${INK}" transform="rotate(-90 ${13 + 13 * k} ${MT + ph / 2})">${esc(t)}</text>`));
+  // Legend under the frame (a row per item under a figure-style re-render).
+  if (LY.legend) {
+    const ly = MT + ph + LY.legendTop;
+    const [c, e, s] = LY.legend;
+    parts.push(`<line x1="8" y1="${ly + c.dy}" x2="30" y2="${ly + c.dy}" stroke="${BLUE}" stroke-width="2"/>`);
+    parts.push(`<line x1="8" y1="${ly + e.dy}" x2="30" y2="${ly + e.dy}" stroke="${INK}" stroke-width="1.2" stroke-dasharray="5 3"/>`);
+    parts.push(`<rect x="11" y="${ly + s.dy - 5}" width="16" height="10" fill="${SHADE}" fill-opacity="0.55"/>`);
+    for (const it of LY.legend) it.lines.forEach((t, k) => parts.push(`<text x="35" y="${ly + it.dy + 3.5 + 17 * k}" font-family="${FONT}" font-size="10" fill="${INK}">${esc(t)}</text>`));
+    parts.push("</svg>");
+    return parts.join("");
+  }
   const ly0 = MT + ph + 48;
   parts.push(`<line x1="${ML}" y1="${ly0}" x2="${ML + 22}" y2="${ly0}" stroke="${BLUE}" stroke-width="2"/>`);
   parts.push(`<text x="${ML + 27}" y="${ly0 + 3.5}" font-family="${FONT}" font-size="10" fill="${INK}">Lorenz curve</text>`);
@@ -335,7 +349,7 @@ export function lorenzSvg(points: { p: number; L: number }[], giniText: string, 
   parts.push(`<text x="${ML + 137}" y="${ly0 + 3.5}" font-family="${FONT}" font-size="10" fill="${INK}">Line of equality</text>`);
   const ly1 = ly0 + 17;
   parts.push(`<rect x="${ML + 3}" y="${ly1 - 5}" width="16" height="10" fill="${SHADE}" fill-opacity="0.55"/>`);
-  parts.push(`<text x="${ML + 27}" y="${ly1 + 3.5}" font-family="${FONT}" font-size="10" fill="${INK}">${esc(`Shaded area = G/2 (Gini G = ${giniText})`)}</text>`);
+  parts.push(`<text x="${ML + 27}" y="${ly1 + 3.5}" font-family="${FONT}" font-size="10" fill="${INK}">${esc(shadeT)}</text>`);
   parts.push("</svg>");
   return parts.join("");
 }

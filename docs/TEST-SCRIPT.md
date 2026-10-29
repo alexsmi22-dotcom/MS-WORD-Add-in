@@ -22,7 +22,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   sh010_comp_v001.1001.exr to sh010_comp_v001.1064.exr **with the underscores intact in Word**; 2000 samples per frame;
   2 frames = 4000 samples = 83.333333 ms.
 - [ ] Same, frame rate **29.97** → "the 5-frame sequence 1602, 1601, 1602, 1601, 1602, 8008 samples in all"; the 2-frame
-  offset is 3203.2 samples (66.7333 ms). Plate start **9990** → refused: "Padding overflow: the plate runs to frame
+  offset is 3203.2 samples (66.7333 ms). Audio **96 kHz** → "odd audio frames carry 3204 samples and even frames 3202" (SMPTE ST 299-1 Table 7); frame rate **59.94** → says Table 7 does not cover it. Plate start **9990** → refused: "Padding overflow: the plate runs to frame
   10053, which needs 5 digits".
 - [ ] **Camera match** (defaults, ALEXA Mini LF Open Gate, 35 mm) → 55.33° across, 40.09° high, 65.136° diagonal; Maya
   Camera Aperture 1.4449 × 1.0055 in; crop factor 0.9677. Switch to **Full frame 36 × 24**, 50 mm, 6000 × 4000 → 39.6°

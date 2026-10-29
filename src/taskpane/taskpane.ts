@@ -229,6 +229,7 @@ import { CAUSAL_STAT_CALCS } from "../lib/causalStatCalcs";
 import { LIMDEP_STAT_CALCS } from "../lib/limdepStatCalcs";
 import { MICROMACRO_STAT_CALCS } from "../lib/micromacroStatCalcs";
 import { GMM_STAT_CALCS } from "../lib/gmmStatCalcs";
+import { CLINICAL_STAT_CALCS } from "../lib/clinicalStatCalcs";
 import { CBA_CALCS } from "../lib/cbaCalcs";
 import { prejudgmentReport, postjudgmentReport, tableCellsInsertable } from "../lib/damagesInterest";
 import { lostEarningsReport } from "../lib/lostEarnings";
@@ -12463,6 +12464,7 @@ const STAT_CALCS: StatCalc[] = [
   ...LIMDEP_STAT_CALCS,
   ...MICROMACRO_STAT_CALCS,
   ...GMM_STAT_CALCS,
+  ...CLINICAL_STAT_CALCS,
 ];
 
 function populateStatsCalcs(): void {

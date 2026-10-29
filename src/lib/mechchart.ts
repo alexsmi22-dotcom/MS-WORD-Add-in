@@ -17,6 +17,7 @@ import { xyToUv, Chromaticity } from "./colourspace";
 import { linearAxis, fmtSig, trueMinus } from "./axis";
 import { textWidthPt } from "./arialMetrics";
 import { usptoPatternDefs } from "./figureStyle";
+import { currentFigCtx } from "./figContext";
 
 const INK = "#111111";
 const RULE = "#888888";
@@ -845,6 +846,11 @@ export interface HBarRow {
   value: number;
   /** Literal hex; defaults to blue for positive, red for negative. */
   colour?: string;
+  /**
+   * The bar's label EXACTLY as the caller's text and tables print the value ("18,193.97", "12.68%", "€1,258.60").
+   * When given it is printed as is and the unit is not appended. Without it the bar prints three significant figures.
+   */
+  text?: string;
 }
 
 /**
@@ -854,8 +860,10 @@ export interface HBarRow {
  * crush into an unreadable stripe.
  */
 export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?: number; bw?: boolean }): string {
-  const W = opts.w ?? 400;
-  const bw = opts.bw === true;
+  // A figure-style re-render (lib/figContext.ts) sets the width and black and white for every caller.
+  const fctx = currentFigCtx();
+  const W = fctx ? fctx.width : (opts.w ?? 400);
+  const bw = fctx ? fctx.bw || opts.bw === true : opts.bw === true;
   const shown = rows.slice(0, 24);
   const S = (base: number, text: string): number =>
     bw ? Math.round(base * 1.45 * (/\p{Ll}/u.test(text) ? 1.4 : 1) * 10) / 10 : base;
@@ -864,23 +872,6 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
   if (!shown.length || !shown.every((r) => Number.isFinite(r.value))) {
     return emptyChart(W, 160, "There are no finite values to chart");
   }
-  const longest = Math.max(...shown.map((r) => r.name.length));
-  const ML = bw
-    ? Math.min(W * 0.45, Math.max(60, ...shown.map((r) => textWidthPt(r.name, S(8, r.name)) + 12)))
-    : Math.min(150, Math.max(60, longest * 5.6 + 10));
-  const MR = bw ? 90 : 58;
-  const MT = 26;
-  const pw = W - ML - MR;
-  const lo = Math.min(0, ...shown.map((r) => r.value));
-  const hi = Math.max(0, ...shown.map((r) => r.value));
-  // hi and lo are each finite, but hi - lo can still overflow to Infinity
-  // (two values near ±1.8e308), and Infinity/Infinity is the NaN this file
-  // must never emit. Halve into range rather than refuse: the bars stay
-  // proportionally true at half scale.
-  let span = hi - lo || 1;
-  if (!Number.isFinite(span)) span = Math.max(Math.abs(hi / 2 - lo / 2), 1) * 2;
-  const X = (v: number): number => ML + ((v / 2 - lo / 2) / (span / 2)) * pw;
-
   // n1() rounds to one decimal, and a milliwatt bar labelled "0.0 W" is a
   // lie. Three significant figures, with plain decimals where they stay
   // short and exponent form where they would not.
@@ -894,6 +885,34 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
     if (a >= 100) return sign + a.toFixed(0);
     return sign + a.toPrecision(3);
   };
+  const longest = Math.max(...shown.map((r) => r.name.length));
+  const ML = bw
+    ? Math.min(W * 0.45, Math.max(60, ...shown.map((r) => textWidthPt(r.name, S(8, r.name)) + 12)))
+    : Math.min(150, W * 0.4, Math.max(60, longest * 5.6 + 10));
+  // The value labels' own width sets the right margin (a caller's "€1,258.60" is longer than three significant
+  // figures), within 45% of the canvas.
+  const labelOf = (rw: HBarRow): string => (rw.text !== undefined ? rw.text : `${fmtVal(rw.value)} ${opts.unit}`.trim());
+  const textW = (t: string, size: number): number => (bw ? textWidthPt(t, size) * 1.1 + 4 : t.length * size * 0.6 + 4);
+  const MR = Math.min(W * 0.45, Math.max(bw ? 90 : 58, ...shown.map((rw) => textW(labelOf(rw), S(8, labelOf(rw))) + 8)));
+  // A name longer than the left margin is cut with an ellipsis (it ran off the canvas at x < 0 at narrow widths).
+  const fitName = (name: string): string => {
+    const size = S(8, name);
+    if (textW(name, size) <= ML - 8) return name;
+    let t = name;
+    while (t.length > 1 && textW(t + "…", S(8, t + "…")) > ML - 8) t = t.slice(0, -1);
+    return t.trimEnd() + "…";
+  };
+  const MT = 26;
+  const pw = W - ML - MR;
+  const lo = Math.min(0, ...shown.map((r) => r.value));
+  const hi = Math.max(0, ...shown.map((r) => r.value));
+  // hi and lo are each finite, but hi - lo can still overflow to Infinity
+  // (two values near ±1.8e308), and Infinity/Infinity is the NaN this file
+  // must never emit. Halve into range rather than refuse: the bars stay
+  // proportionally true at half scale.
+  let span = hi - lo || 1;
+  if (!Number.isFinite(span)) span = Math.max(Math.abs(hi / 2 - lo / 2), 1) * 2;
+  const X = (v: number): number => ML + ((v / 2 - lo / 2) / (span / 2)) * pw;
 
   const p: string[] = [];
   p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
@@ -913,8 +932,9 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
     } else
       p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h}" fill="${fill}" fill-opacity="0.85"/>`);
     const dyT = bw ? 5 : 3;
-    p.push(labelText(ML - 5, y + h / 2 + dyT, rw.name, { anchor: "end", size: S(8, rw.name) }));
-    const txt = `${fmtVal(rw.value)} ${opts.unit}`;
+    const name = fitName(rw.name);
+    p.push(labelText(ML - 5, y + h / 2 + dyT, name, { anchor: "end", size: S(8, name) }));
+    const txt = labelOf(rw);
     const vSize = S(8, txt);
     const wantX = Math.max(X(0), X(rw.value)) + 4;
     const estW = bw ? textWidthPt(txt, vSize) * 1.1 + 4 : txt.length * 8 * 0.56 + 4;
@@ -1503,8 +1523,12 @@ export function ladderSvg(
     bw?: boolean;
   },
 ): string {
-  const W = opts.width !== undefined && Number.isFinite(opts.width) && opts.width >= 200 ? opts.width : LADDER_CHART_SIZE_W;
-  const bw = opts.bw === true;
+  // A figure-style re-render (lib/figContext.ts) sets the width (down to 120, the narrowest a style asks for) and
+  // black and white for every caller.
+  const fctx = currentFigCtx();
+  const reqW = fctx ? fctx.width : opts.width;
+  const W = reqW !== undefined && Number.isFinite(reqW) && reqW >= (fctx ? 120 : 200) ? reqW : LADDER_CHART_SIZE_W;
+  const bw = fctx ? fctx.bw || opts.bw === true : opts.bw === true;
   // Black-and-white (USPTO) lettering: every run 1.45× and a run with a
   // lowercase letter 1.4× again (measured on its x-height), so at a full
   // 170 mm sight the 8–9 px ledger text prints at 3.2 mm (37 CFR 1.84(p)(3)).

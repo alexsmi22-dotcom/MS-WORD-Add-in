@@ -390,8 +390,8 @@ describe("17/18. Figures: poles, legends, offset ticks, tiny ladders", () => {
   it("Finance figures re-render at a width and in black and white", () => {
     const draw = () => moneyOverTimeSvg({ periods: 10, valueAt: (k) => 1000 * 1.05 ** k, title: "t", xlabel: "period" })!;
     const bw = withFinFig({ width: 600, bw: true }, draw);
-    // 600 for the plot plus plot.ts's outside-legend gutter (renderAtPreset fits the root width it gets).
-    expect(Number(/^<svg[^>]*width="([\d.]+)"/.exec(bw)![1])).toBeGreaterThan(600);
+    // 600 exactly: under a re-render the legend sits below the plot, not in a gutter (lib/figContext.ts, 2026-10-28).
+    expect(Number(/^<svg[^>]*width="([\d.]+)"/.exec(bw)![1])).toBe(600);
     expect(nonBlackWhitePaints(bw)).toEqual([]);
     const lad = withFinFig({ width: 300, bw: true }, () => cashFlowLadderSvg([-100, 60, 60], [-100, 54.5, 49.6], "t")!);
     expect(nonBlackWhitePaints(lad)).toEqual([]);

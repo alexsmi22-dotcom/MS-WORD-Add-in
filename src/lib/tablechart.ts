@@ -633,13 +633,13 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   const figLabel = (style.figLabel ?? "").trim();
   const showLegend = chart.series.length > 1;
   // Patent text is larger (see PATENT_CAPS_PX), so its margins are too.
-  const ml = patent ? 62 : 48;
+  let ml = patent ? 62 : 48;
   const mr = showLegend ? (patent ? 132 : 100) : 14;
   let mt = title ? (patent ? 30 : 26) : 12;
   let mb = (patent ? 40 : 34) + (figLabel ? 26 : 0);
   const okabe = !patent && style.palette === "okabe-ito";
   const pal: readonly string[] = okabe ? CATEGORICAL_PALETTE : CHART_PALETTE;
-  const pw = W - ml - mr;
+  let pw = W - ml - mr;
   let ph = H - mt - mb;
 
   const stacked = kind === "stacked-column" || kind === "stacked-bar" || kind === "stacked-area";
@@ -695,8 +695,33 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   // AXIS_TICK_CAP ticks on any input, femtosecond tables included.
   // Patent tick labels are 12 px, so a horizontal value axis asks for fewer.
   const valueAxis0 = linearAxis(vmin, vmax, { target: horizontal ? (patent ? 4 : 6) : 5 });
+  // Comma grouping is for money and counts: a big axis prints in grouped fixed point ("12,500,000"), never with a
+  // ×10⁷ multiplier on a money axis (2026-10-28). A small axis (×10⁻⁴) keeps its multiplier.
+  // (Past a trillion the grouped figure is longer than the axis can hold, and the multiplier stays.)
+  const bigMult = /^×10[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/.test(valueAxis0.multiplier) && valueAxis0.values.every((v) => Math.abs(v) < 1e12);
+  const fixedLabels = (): string[] => {
+    const st = valueAxis0.step > 0 && Number.isFinite(valueAxis0.step) ? valueAxis0.step : 1;
+    const dp = Math.max(0, Math.min(6, Math.ceil(-Math.log10(st) - 1e-9)));
+    return valueAxis0.values.map((v) => {
+      const s = (Math.abs(v) < st * 1e-6 ? 0 : v).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+      return s.startsWith("-") ? "−" + s.slice(1) : s;
+    });
+  };
   const valueAxis =
-    style.grouping === "comma" ? { ...valueAxis0, labels: valueAxis0.labels.map(commaGroupLabel) } : valueAxis0;
+    style.grouping === "comma"
+      ? bigMult
+        ? { ...valueAxis0, labels: fixedLabels(), multiplier: "" }
+        : { ...valueAxis0, labels: valueAxis0.labels.map(commaGroupLabel) }
+      : valueAxis0;
+  // Grouped fixed-point money labels ("25,000,000") are wider than the 48 px margin was sized for: on a vertical value
+  // axis the margin grows to fit them (inside the fixed canvas, taken from the plot width).
+  if (!horizontal && style.grouping === "comma" && bigMult) {
+    const widest = Math.max(...valueAxis.labels.map((l) => l.length)) * 0.6 * (patent ? 13 : 10) + 12;
+    if (widest > ml) {
+      ml = Math.ceil(widest);
+      pw = W - ml - mr;
+    }
+  }
   // The multiplier is stated once, at the end of the value axis, in room made
   // for it INSIDE the fixed canvas (the canvas size is what Word inserts at).
   if (valueAxis.multiplier) {

@@ -169,18 +169,33 @@ export function groupedBarsSvg(title: string, groups: BarGroup[], fig: FinFig | 
   const plotR = W - MR;
   const pw = plotR - ML;
   if (pw < 40) return undefined;
-  const barH = bw ? 12 : 9;
-  const rowH = side ? Math.max(barH, fs) + 8 : fs + barH + 9;
+  // Stacked rows (name above the bar) in black and white are kept compact: at USPTO lettering a long ratio list
+  // otherwise ran past the 244 mm sight.
+  const barH = bw ? (side ? 12 : 8) : 9;
+  const rowH = side ? Math.max(barH, fs) + 8 : fs + barH + (bw ? 6 : 9);
 
   let y = 10 + titleLines.length * (titleFs + 4) + 4;
   const p: string[] = [];
   for (const g of gs) {
     const vals = g.rows.flatMap((r) => [r.value, r.tick ?? null]).filter((v): v is number => v !== null && Number.isFinite(v));
-    const lo = Math.min(0, ...vals);
-    const hi = Math.max(0, ...vals);
+    let lo = Math.min(0, ...vals);
+    let hi = Math.max(0, ...vals);
+    // A BROKEN BAR for one huge value (an interest coverage of 18,000× beside ratios near 1): the axis stops at 1.5×
+    // the next largest magnitude, the outlier's bar runs to the edge with a break mark, and its label still prints
+    // its exact value. Without it every other bar in the group was a sliver.
+    const mags = vals.map((v) => Math.abs(v)).sort((x, y) => y - x);
+    if (mags.length >= 2 && mags[1] > 0 && mags[0] > 10 * mags[1]) {
+      const edge = 1.5 * mags[1];
+      hi = Math.min(hi, edge);
+      lo = Math.max(lo, -edge);
+    }
+    const broken = (v: number): boolean => v > hi || v < lo;
     let span = hi - lo || 1;
     if (!Number.isFinite(span)) span = Math.max(Math.abs(hi / 2 - lo / 2), 1) * 2;
-    const X = (v: number): number => ML + ((v / 2 - lo / 2) / (span / 2)) * pw;
+    const X = (v0: number): number => {
+      const v = Math.min(hi, Math.max(lo, v0));
+      return ML + ((v / 2 - lo / 2) / (span / 2)) * pw;
+    };
     if (g.head) {
       p.push(`<text x="8" y="${(y + headFs).toFixed(1)}" font-size="${headFs}" font-weight="bold" fill="${INK}">${esc(g.head)}</text>`);
       y += headFs + 10;
@@ -197,6 +212,11 @@ export function groupedBarsSvg(title: string, groups: BarGroup[], fig: FinFig | 
           ? `<rect x="${x0.toFixed(1)}" y="${barY.toFixed(1)}" width="${wBar.toFixed(1)}" height="${barH}" fill="${r.emphasis ? "#000000" : "#ffffff"}" stroke="#000000" stroke-width="0.8"/>`
           : `<rect x="${x0.toFixed(1)}" y="${barY.toFixed(1)}" width="${wBar.toFixed(1)}" height="${barH}" fill="${fill}" fill-opacity="0.85"/>`,
       );
+      if (broken(r.value)) {
+        // Two white slashes across the bar near its clipped end: the axis break.
+        const xe = r.value > 0 ? X(r.value) - 10 : X(r.value) + 6;
+        p.push(`<path d="M${xe.toFixed(1)},${(barY + barH + 1).toFixed(1)} l3,${-(barH + 2)} M${(xe + 4).toFixed(1)},${(barY + barH + 1).toFixed(1)} l3,${-(barH + 2)}" stroke="${bw && !r.emphasis ? "#000000" : "#ffffff"}" stroke-width="1.6" fill="none"/>`);
+      }
       // the zero line, over this bar only (a line running through the rows would cross the stacked labels)
       if (lo < 0) {
         const xz = X(0).toFixed(1);

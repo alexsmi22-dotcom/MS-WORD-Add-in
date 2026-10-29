@@ -6,6 +6,7 @@
 import { buildPlotSvg, Point, Series, PlotOptions } from "./plot";
 import { blackScholes, bondPrice, OptionType } from "./finance";
 import { ladderSvg, LadderRow } from "./mechchart";
+import { withFigCtx, currentFigCtx, type FigCtx } from "./figContext";
 
 /**
  * A FIGURE-STYLE RE-RENDER FOR FINANCE (fix2-paf). Finance figures had no
@@ -14,34 +15,24 @@ import { ladderSvg, LadderRow } from "./mechchart";
  * inside withFinFig({ width, bw }), and every Finance figure builder draws at
  * that canvas width (height in proportion) and, for USPTO, in black and white.
  */
-export interface FinFig {
-  width: number;
-  bw: boolean;
-}
-let finFig: FinFig | null = null;
+// Since 2026-10-28 this is the SHARED figure context (lib/figContext.ts) under its Finance names, so Finance and
+// Statistics figures re-render through one mechanism.
+export type FinFig = FigCtx;
 
 /** Runs `fn` with every Finance figure drawn at `fig`'s width and colour mode. */
 export function withFinFig<T>(fig: FinFig, fn: () => T): T {
-  const prev = finFig;
-  finFig = fig;
-  try {
-    return fn();
-  } finally {
-    finFig = prev;
-  }
+  return withFigCtx(fig, fn);
 }
 
-/** buildPlotSvg under the current Finance figure style (unchanged outside withFinFig). */
+/** buildPlotSvg under the current figure style (buildPlotSvg itself reads the context; unchanged outside one). */
 export function finPlotSvg(series: Series[], opts: PlotOptions): string {
-  if (!finFig) return buildPlotSvg(series, opts);
-  const w0 = opts.width ?? 380;
-  const h0 = opts.height ?? 270;
-  return buildPlotSvg(series, { ...opts, width: finFig.width, height: Math.round((h0 * finFig.width) / w0), bw: finFig.bw });
+  // Money and counts on the value axis in grouped fixed point ("1,000", "25,000"; never "25 000" or ×10⁷).
+  return buildPlotSvg(series, { yGrouping: "comma", ...opts });
 }
 
-/** The current Finance figure style, for builders outside plot.ts (the ladder). */
+/** The current figure style, for builders outside plot.ts (the ladder). */
 export function currentFinFig(): FinFig | null {
-  return finFig;
+  return currentFigCtx();
 }
 
 /** A formatted number's leading hyphen as a true minus, and a negative zero ("-0.00", "-0.00%") as plain zero. */

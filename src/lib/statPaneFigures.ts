@@ -19,6 +19,7 @@ import { estimatorLabel, isLinearKind } from "./regModel";
 import { forestPlotSvg } from "./statchart";
 import { combineSvgs } from "./plot";
 import { composePanels } from "./panels";
+import { currentFigCtx, stickyLayout, withCellCtx } from "./figContext";
 import { oddsRatioRows } from "./logitProbit";
 
 /** At most this many term panels in the regression-table figure (the header says how many were left out). */
@@ -76,6 +77,7 @@ export function logitCoefFigureSvg(model: FittedModel): string {
   const title = model.kind === "probit" ? "Probit" : "Logit";
   const terms = model.terms.filter((t) => t.name !== "Constant");
   const shown = terms.length ? terms : model.terms;
+  const build = (): string[] => {
   const parts = [
     forestPlotSvg(
       shown.map((t) => row(t.name, t)),
@@ -105,7 +107,27 @@ export function logitCoefFigureSvg(model: FittedModel): string {
       ),
     );
   }
-  return combineSvgs(parts).svg;
+  return parts;
+  };
+  return stackOrPair(build);
+}
+
+/**
+ * The panels one above the other; under a figure-style re-render (lib/figContext.ts) whose stack would print taller
+ * than the style allows, two to a row with each panel DRAWN at the half width (withCellCtx), so its text keeps its
+ * size rather than being scaled down with the panel.
+ */
+function stackOrPair(build: () => string[]): string {
+  const parts = build();
+  const fctx = currentFigCtx();
+  const maxMm = fctx?.style?.maxHeightMm ?? null;
+  if (!fctx || maxMm === null || fctx.widthMm === undefined || parts.length < 2) return combineSvgs(parts).svg;
+  const cols = stickyLayout("statPaneStack", () => {
+    const one = composePanels(parts, { cols: 1 });
+    return (one.height / one.width) * (fctx.widthMm as number) <= maxMm * 0.98 ? 1 : 2;
+  });
+  if (cols === 1) return composePanels(parts, { cols: 1 }).svg;
+  return composePanels(withCellCtx(2, 8, build), { cols: 2, gap: 8 }).svg;
 }
 
 /**
@@ -120,14 +142,30 @@ export function regTableFigureSvg(models: FittedModel[]): string {
   if (!order.length && models.some((m) => m.terms.some((t) => t.name === "Constant"))) order.push("Constant");
   if (!order.length) return "";
   const shown = order.slice(0, REGTABLE_FIGURE_MAX_TERMS);
-  const panels = shown.map((name) => {
-    const rows = models.flatMap((m, i) => {
-      const t = m.terms.find((x) => x.name === name);
-      return t ? [row(mixed ? `(${i + 1}) ${estimatorLabel(m)}` : `(${i + 1})`, t)] : [];
+  const build = (): string[] =>
+    shown.map((name) => {
+      const rows = models.flatMap((m, i) => {
+        const t = m.terms.find((x) => x.name === name);
+        return t ? [row(mixed ? `(${i + 1}) ${estimatorLabel(m)}` : `(${i + 1})`, t)] : [];
+      });
+      return forestPlotSvg(rows, { title: clip(name, 40), xlabel: "coefficient", zero: 0, w: PANEL_W });
     });
-    return forestPlotSvg(rows, { title: clip(name, 40), xlabel: "coefficient", zero: 0, w: PANEL_W });
-  });
-  const cols = panels.length > 1 ? 2 : 1;
+  let panels = build();
+  // Two to a row; under a figure-style re-render (lib/figContext.ts) one per row when the stack still fits the style's
+  // height at its printed width (two to a row halves the text, and a USPTO or thesis column cannot afford that).
+  const fctx = currentFigCtx();
+  const maxMm = fctx?.style?.maxHeightMm ?? null;
+  const cols =
+    panels.length < 2
+      ? 1
+      : fctx && maxMm !== null && fctx.widthMm !== undefined
+        ? stickyLayout("regTableGrid", () => {
+            const one = composePanels(panels, { cols: 1 });
+            return (one.height / one.width) * (fctx.widthMm as number) <= maxMm * 0.98 ? 1 : 2;
+          })
+        : 2;
+  // Two to a row under a re-render: each panel drawn at the half width (withCellCtx), so its text keeps its size.
+  if (fctx && cols === 2) panels = withCellCtx(2, 8, build);
   const grid = composePanels(panels, { cols });
   // Quantile coefficients are in the response's units like OLS; logit and probit coefficients are not.
   const scales = models.some((m) => !isLinearKind(m.kind) && m.kind !== "quantile")
@@ -140,7 +178,8 @@ export function regTableFigureSvg(models: FittedModel[]): string {
   ].filter(Boolean);
   const caption = "Coefficients by model with 95% CI, one panel per term (each on its own axis)" + (second.length ? `. ${capitalize(second.join("; "))}.` : ".");
   const head = captionSvg(caption, grid.width);
-  return combineSvgs([head, grid.svg], 4).svg;
+  // Under a re-render the caption stays above the grid (combineSvgs could set a tall pair side by side).
+  return fctx ? composePanels([head, grid.svg], { cols: 1, gap: 4 }).svg : combineSvgs([head, grid.svg], 4).svg;
 }
 
 function capitalize(s: string): string {

@@ -10,7 +10,7 @@ import { finRefusal as finRefusalRaw } from "./finCalc";
 /** A refusal starts with a capital (a lower-case first word raised; a symbol such as "q" or "σ" is left alone). */
 const finRefusal = (s: string): FinResult => finRefusalRaw(/^[a-z][a-z]/.test(s) ? s[0].toUpperCase() + s.slice(1) : s);
 import { blackScholes, readFinanceField, type OptionType } from "./finance";
-import { finPlotSvg } from "./financeFigures";
+import { finPlotSvg, currentFinFig as currentFigCtx } from "./financeFigures";
 import { putCallParitySvg } from "./finLibFigures";
 import type { Point, Series } from "./plot";
 import { readDataBlock } from "./dataBlock";
@@ -118,13 +118,17 @@ export function black76CurveSvg(type: OptionType, F: number, K: number, t: numbe
 export function crrTreeSvg(res: CrrResult, american: boolean): string | undefined {
   if (!res.nodes) return undefined;
   const n = res.nodes.length - 1;
+  const fig = currentFigCtx();
+  const NL = String.fromCharCode(10);
   const nodes: TreeNode[] = [];
   const edges: TreeEdge[] = [];
   for (let i = 0; i <= n; i++) {
     for (let j = i; j >= 0; j--) {
       const nd = res.nodes[i][j];
       if (!Number.isFinite(nd.s) || !Number.isFinite(nd.v)) return undefined;
-      nodes.push({ id: `${i},${j}`, label: `${fx(nd.s, 2)} / ${fx(nd.v, 2)}`, highlight: nd.early });
+      // Under a figure-style re-render the stock and option value stack on two lines, halving each node's width, so
+      // the lattice can reach a journal's or the USPTO's lettering size (lib/figContext.ts).
+      nodes.push({ id: `${i},${j}`, label: fig ? `${fx(nd.s, 2)}${NL}${fx(nd.v, 2)}` : `${fx(nd.s, 2)} / ${fx(nd.v, 2)}`, highlight: nd.early });
     }
   }
   for (let i = 0; i < n; i++) {
@@ -133,9 +137,10 @@ export function crrTreeSvg(res: CrrResult, american: boolean): string | undefine
       edges.push({ from: `${i},${j}`, to: `${i + 1},${j}` });
     }
   }
+  const node = fig ? "node = stock over option value" : "node = stock / option value";
   const cap = american
-    ? `${n}-step CRR tree, node = stock / option value; up moves left; shaded = early exercise`
-    : `${n}-step CRR tree, node = stock / option value; up moves left`;
+    ? `${n}-step CRR tree, ${node}; up moves left; ${fig?.bw ? "heavy outline" : "shaded"} = early exercise`
+    : `${n}-step CRR tree, ${node}; up moves left`;
   return treeSvg({ nodes, edges, dag: true, caption: cap });
 }
 

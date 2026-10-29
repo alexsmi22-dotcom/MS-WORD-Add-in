@@ -407,7 +407,7 @@ export function secRibbonCalc(r: Read): FinResult {
       { points: fig.map((i) => ({ x: decimalYear(p.days[i]), y: close[i] })), type: "line", color: "#2563eb", label: "close" },
       { points: fig.map((i) => ({ x: decimalYear(p.days[i]), y: close[i] - res.inflation[i] })), type: "line", color: "#b45309", label: "close less inflation" },
     ],
-    { width: 380, height: 250, title: "Inflation ribbon (from the inputs given)", xlabel: "date (year)", ylabel: "price per share ($)" },
+    { width: 380, height: 250, title: "Inflation ribbon (from the inputs given)", xlabel: "date", xDates: "year", ylabel: "price per share ($)" },
   );
   const tables: FinTable[] = [
     { label: "Corrective disclosures", rows: discRows, align: ["left", "right", "right", "right", "right"] },
@@ -821,7 +821,7 @@ export function pslraLookbackCalc(r: Read): FinResult {
   const xs = lb.rows.map((x) => x.dayOfPeriod);
   const series = [
     { points: lb.rows.map((x, i) => ({ x: xs[i], y: x.close })), type: "line" as const, color: "#2563eb", label: "close" },
-    { points: lb.rows.map((x, i) => ({ x: xs[i], y: x.mean })), type: "line" as const, color: "#b45309", label: "mean trading price to date" },
+    { points: lb.rows.map((x, i) => ({ x: xs[i], y: x.mean })), type: "line" as const, color: "#b45309", label: "mean trading price" },
   ];
   if (purchase !== null) series.push({ points: [{ x: 1, y: purchase }, { x: 90, y: purchase }], type: "line" as const, color: "#64748b", label: "purchase price" });
   const svg = lb.rows.length >= 2 ? finPlotSvg(series, { width: 380, height: 250, title: "PSLRA 90-day lookback (from the inputs given)", xlabel: "day of the 90-day period", ylabel: "price per share ($)" }) : undefined;
@@ -1019,7 +1019,7 @@ export function secAggregateCalc(r: Read): FinResult {
   const svg = damagesFigure(
     bought.map((_, w) => `Window ${w + 1}`),
     series.slice(0, 1),
-    `Aggregate damages by purchase window, ${one ? "one-trader" : "two-trader"} model`,
+    `Damages by window, ${one ? "one-trader" : "two-trader"} model`,
   );
   return {
     text: lines.join("\n"),

@@ -1262,9 +1262,9 @@ export interface PresetRender {
  * drawn 375). Each round corrects the request by the measured shortfall, so a builder
  * that adds a fixed margin converges in one step.
  */
-export function renderAtPreset(render: (canvasWidth: number, preset: FigureStylePreset) => string, preset: FigureStylePreset, widthMm: number): PresetRender {
+export function renderAtPreset(render: (canvasWidth: number, preset: FigureStylePreset, widthMm: number) => string, preset: FigureStylePreset, widthMm: number): PresetRender {
   let w = Math.round(mmToPx(widthMm));
-  let svg = render(w, preset);
+  let svg = render(w, preset, widthMm);
   let check = checkSvgAgainstPreset(svg, preset, widthMm);
   let reason: string | null = null;
   for (let round = 0; round < 6 && !check.ok; round++) {
@@ -1292,7 +1292,7 @@ export function renderAtPreset(render: (canvasWidth: number, preset: FigureStyle
     const next = Math.round(Math.min(4000, Math.max(120, w + (fit.canvasWidth - before))) * 100) / 100;
     if (next === w) break;
     w = next;
-    svg = render(w, preset);
+    svg = render(w, preset, widthMm);
     check = checkSvgAgainstPreset(svg, preset, widthMm);
     const after = measureSvgText(svg, widthMm).rootWidthUser;
     if (Math.abs(after - before) < 0.005) {

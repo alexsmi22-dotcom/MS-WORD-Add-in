@@ -377,6 +377,10 @@ export function starsForAt(p: number, alpha: number): string {
  */
 export function markFor(b: SigBracket, alpha: number): string {
   if (!b.significant) return "ns";
+  // DECIDED ON THE PRINTED p (2026-10-28, calcReading.ts pVerdict's rule): the text prints p to three decimals, and a
+  // pair whose p prints ".050" is "at the 5% boundary" there, never significant. A star on that pair would contradict
+  // the sentence beside the figure, so it shows "ns" like any pair the text does not call significant.
+  if (validP(b.p) && b.p >= 0.001 && Number(b.p.toFixed(3)) >= alpha) return "ns";
   const bands = markBands(alpha);
   for (const t of bands) if (b.p < t.below) return t.stars;
   return bands[bands.length - 1].stars;

@@ -332,7 +332,14 @@ export function npvProfileSvg(projects: { name: string; cfs: number[]; roots: nu
 }
 
 /** The DCF sensitivity grid as a heat map (rows: discount rate; columns: terminal growth or exit multiple). */
-export function dcfSensitivityHeatmapSvg(rowLabels: string[], colLabels: string[], grid: (number | null)[][], title: string, rowAxis: string): string {
+export function dcfSensitivityHeatmapSvg(
+  rowLabels: string[],
+  colLabels: string[],
+  grid: (number | null)[][],
+  title: string,
+  rowAxis: string,
+  valueText?: (v: number) => string,
+): string {
   const chart: TableChart = {
     categories: rowLabels,
     series: colLabels.map((c, j) => ({ name: c, values: grid.map((row) => row[j]) })),
@@ -346,7 +353,7 @@ export function dcfSensitivityHeatmapSvg(rowLabels: string[], colLabels: string[
   const fig = currentFinFig();
   const W = fig ? fig.width : 520;
   const H = Math.round((320 * W) / 520);
-  return buildHeatmapSvg(chart, title, { scale: "sequential", grey: fig?.bw === true }, W, H).svg;
+  return buildHeatmapSvg(chart, title, { scale: "sequential", grey: fig?.bw === true, valueText }, W, H).svg;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -1086,7 +1093,8 @@ export function dcfCalc(r: Read): FinResult {
     align: ["left", "right", "right", "right", "right", "right"],
     note: blanks ? `n/a: ${plural(blanks, "cell")} where the WACC is not above g (Gordon), the WACC is −99% or below, or the multiple is negative.` : `The center cell is the base case.`,
   };
-  const svg = dcfSensitivityHeatmapSvg(rowLabels, ts.map(colLabel), grid, `Sensitivity of the ${valueName}`, "discount rate");
+  // The cells and the scale's ends printed as the sensitivity table prints them ("1,306", not "1306").
+  const svg = dcfSensitivityHeatmapSvg(rowLabels, ts.map(colLabel), grid, `Sensitivity of the ${valueName}`, "discount rate", (v) => fx(v, dp));
   const eqS = fx(d.equity, 2);
   const evS = fx(d.ev, 2);
   const tvPart = !Number.isFinite(d.tvShare)

@@ -28,6 +28,7 @@ import {
 } from "./cas";
 import { fmtFixed, fmtSci, groupThousands, NBSP } from "./regTable";
 import { linearAxis, THIN_SPACE } from "./axis";
+import { currentFigCtx } from "./figContext";
 
 export const MINUS = "−";
 
@@ -588,8 +589,11 @@ export function marketFigureSvg(spec: MarketSpec, r: MarketOutcome, labels: Mark
   const yTickW = Math.max(...yRow.labels.map((s) => s.length), 1) * 10 * 0.58;
   const ML = Math.max(52, Math.ceil(yTickW + 30));
   const MT = 34;
-  const pw = 330;
-  const ph = 250;
+  // A figure-style re-render (lib/figContext.ts): the plot fills the context's width and the legend goes below it, so
+  // the figure can be drawn as narrow as a style needs (the right-hand legend fixed it at 560 units).
+  const fctx = currentFigCtx();
+  const pw = fctx ? Math.max(120, fctx.width - ML - 14) : 330;
+  const ph = fctx ? Math.round(pw * 0.6) : 250;
   const MB = 46;
 
   const legend: LegendItem[] = [
@@ -615,9 +619,11 @@ export function marketFigureSvg(spec: MarketSpec, r: MarketOutcome, labels: Mark
 
   const LEG_FS = 10;
   const legendTextW = Math.max(...legend.map((l) => l.label.length)) * LEG_FS * 0.58;
-  const legX = ML + pw + 14;
-  const W = Math.ceil(legX + 26 + legendTextW + 10);
-  const H = MT + ph + MB;
+  const legX = fctx ? 4 : ML + pw + 14;
+  const W = fctx ? ML + pw + 14 : Math.ceil(legX + 26 + legendTextW + 10);
+  const LH = 17;
+  const legH = legend.length * LH + 8;
+  const H = MT + ph + MB + (fctx ? legH + 6 : 0);
 
   const px = (q: number): number => ML + (q / X) * pw;
   const py = (p: number): number => MT + ph - (p / Y) * ph;
@@ -713,10 +719,8 @@ export function marketFigureSvg(spec: MarketSpec, r: MarketOutcome, labels: Mark
             : "Supply and demand with a price floor";
   out.push(`<text x="${f2(W / 2)}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="${COLORS.ink}">${esc(title)}</text>`);
 
-  // Legend in the right gutter.
-  const LH = 17;
-  const legH = legend.length * LH + 8;
-  const legY = MT;
+  // Legend in the right gutter (below the plot under a figure-style re-render).
+  const legY = fctx ? MT + ph + MB : MT;
   out.push(`<rect x="${legX}" y="${legY}" width="${f2(W - legX - 4)}" height="${legH}" fill="#ffffff" stroke="#cccccc"/>`);
   legend.forEach((l, i) => {
     const cy = legY + 4 + i * LH + LH / 2;

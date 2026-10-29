@@ -35,9 +35,9 @@ describe("R5 BLOCKER 1: a logit reading never states a probability change above 
     expect(r).not.toMatch(/1\.3310 in the probability/);
     expect(o.text).toContain("Per 0.01 of x: the average marginal effect −1.3310 × 0.01 = −0.0133 in P(y = 1).");
   });
-  test("the step: per unit below 0.1, else the largest power of ten that brings it under 0.1", () => {
+  test("the step: per unit while it prints below 1, else the largest power of ten that brings it under 0.1", () => {
     expect(ameScale(0.05)).toEqual({ step: 1, stepText: "1", scaledText: "0.0500" });
-    expect(ameScale(0.36).stepText).toBe("0.1");
+    expect(ameScale(0.36).stepText).toBe("1"); // round 2 MAJOR 4: rescaled only when the change prints at 1 or more
     expect(ameScale(-339294).scaledText).toMatch(/^0\.0\d{3}$/);
     expect(ameScale(487).stepText).toBe("0.0001");
   });

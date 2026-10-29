@@ -21,6 +21,7 @@ import { buildPlotSvg } from "./plot";
 import { fitReading, unsigned } from "./statLibReading";
 import { pVerdict, BOUNDARY_CLAUSE } from "./calcReading";
 import { coefForestSvg, type ForestTerm } from "./statLibFigures";
+import { isBinaryColumn, probChangeStep, probStepNote } from "./probChange";
 import {
   fitCount,
   fitHeckman,
@@ -407,7 +408,17 @@ export function econTobitCalc(read: Read): StatOutput {
     const u = ame.unconditional.coef;
     const pr = ame.probability.coef;
     const lead = `Each one-unit increase in ${tk.name}, a clear predictor (${pText(tk.p)}), goes with an expected ${m.depName} about ${unsigned(fmtFixed(u, D))} ${hl(u)} on average, counting the ${held}`;
-    const second = ` It goes with a chance that ${m.depName} is ${where} about ${unsigned(fmtFixed(pr, D))} ${hl(pr)}.`;
+    // The chance is a probability: the one probability-change rule (lib/probChange.ts; round 2 BLOCKER 1, "chance …
+    // about 4.2686 higher"), its own step in its own sentence, the scaled value printed in the text.
+    const j = c.names.indexOf(tk.name);
+    const sc = probChangeStep(pr, { binary: j >= 0 && isBinaryColumn(c.X.map((row) => row[j])), decimals: D });
+    const second = !sc.quotable
+      ? ` It goes with a ${hl(pr)} chance that ${m.depName} is ${where}.`
+      : sc.step === 1
+        ? ` It goes with a chance that ${m.depName} is ${where} about ${sc.scaledText} ${hl(pr)}.`
+        : ` Each ${sc.stepWords} increase in ${tk.name} goes with a chance that ${m.depName} is ${where} about ${sc.scaledText} ${hl(pr)}.`;
+    const note = probStepNote(tk.name, pr, sc, `P(${unc})`, D);
+    if (note) lines.push(note);
     reading = fitReading(`${lead}.${second}`, `${lead}.`, `The clearest predictor (${pText(tk.p)}) goes with an expected outcome about ${unsigned(fmtFixed(u, D))} ${hl(u)} per unit on average.`);
   } else if (tk && sig(tk.p)) {
     // No average marginal effect for it (not expected: every non-constant term has one); the latent coefficient instead.
@@ -637,8 +648,19 @@ export function econMlogitCalc(read: Read): StatOutput {
     lead = `With no predictors, the model reproduces only the shares of the ${intText(r.categories.length)} categories of ${dep}.`;
     bare = "With no predictors, the model reproduces only the category shares.";
   } else if (sig(best.t.p)) {
-    lead = `Each one-unit increase in ${best.t.name} goes with a probability that ${dep} = ${numText(best.cat)} about ${unsigned(fmtFixed(best.t.coef, D))} ${best.t.coef > 0 ? "higher" : best.t.coef < 0 ? "lower" : "different"} on average (${pText(best.t.p)}), other predictors held fixed.`;
-    bare = `The clearest predictor goes with a probability of category ${numText(best.cat)} about ${unsigned(fmtFixed(best.t.coef, D))} ${best.t.coef > 0 ? "higher" : best.t.coef < 0 ? "lower" : "different"} per unit on average (${pText(best.t.p)}).`;
+    // The one probability-change rule (lib/probChange.ts; round 2 BLOCKER 1: "about 5.2924 higher").
+    const hl = best.t.coef > 0 ? "higher" : best.t.coef < 0 ? "lower" : "different";
+    const j = c.names.indexOf(best.t.name);
+    const sc = probChangeStep(best.t.coef, { binary: j >= 0 && isBinaryColumn(c.X.map((row) => row[j])), decimals: D });
+    if (sc.quotable) {
+      lead = `${sc.step === 1 ? "Each one-unit" : `Each ${sc.stepWords}`} increase in ${best.t.name} goes with a probability that ${dep} = ${numText(best.cat)} about ${sc.scaledText} ${hl} on average (${pText(best.t.p)}), other predictors held fixed.`;
+      bare = `The clearest predictor goes with a probability of category ${numText(best.cat)} about ${sc.scaledText} ${hl} per ${sc.step === 1 ? "unit" : `${sc.stepText} of it`} on average (${pText(best.t.p)}).`;
+    } else {
+      lead = `${best.t.name} = 1 goes with a ${hl} probability that ${dep} = ${numText(best.cat)} than ${best.t.name} = 0 on average (${pText(best.t.p)}), other predictors held fixed.`;
+      bare = `The clearest predictor goes with a ${hl} probability of category ${numText(best.cat)} on average (${pText(best.t.p)}).`;
+    }
+    const note = probStepNote(best.t.name, best.t.coef, sc, `P(${dep} = ${numText(best.cat)})`, D);
+    if (note) lines.push(note);
   } else {
     lead = `No predictor is clearly linked to the probability of any ${dep} category at the 5% level; the strongest, ${best.t.name}, has ${pText(best.t.p)}${edge(best.t.p)}.`;
     bare = `No predictor is clearly linked to the probability of any category at the 5% level; the strongest has ${pText(best.t.p)}${edge(best.t.p)}.`;

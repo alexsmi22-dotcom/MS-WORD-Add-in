@@ -103,10 +103,30 @@ export function withCellCtx<T>(cols: number, gap: number, fn: () => T): T {
 }
 
 /** The render callback a figure style calls: re-run `compute` at canvas width `w` in that style, then fit the style. */
+/**
+ * How long one renderer may spend re-running its calculator across a style fit (several widths, several styles)
+ * before it refuses. A style fit re-runs the whole compute up to about seven times; on a large input (Tukey at 20
+ * groups, IV at its row cap) that was tens of seconds of frozen Word (figure-track report 2026-10-28). The refusal
+ * reaches the user through prepareFigure's "could not be redrawn" reason with this message.
+ */
+export const RENDER_BUDGET_MS = 2500;
+export const RENDER_BUDGET_MESSAGE =
+  "this result takes too long to recompute for a figure style; insert it with the style \"As drawn\", or use less data";
+
 export function figureRenderer(compute: () => string | undefined | null): (w: number, style?: FigureStylePreset, widthMm?: number) => string {
   // One memo per (style, printed width): the renders of one style fit share their layout decisions (stickyLayout).
   const memos = new Map<string, Map<string, number>>();
+  let spent = 0;
   return (w: number, style?: FigureStylePreset, widthMm?: number): string => {
+    if (spent > RENDER_BUDGET_MS) throw new Error(RENDER_BUDGET_MESSAGE);
+    const t0 = Date.now();
+    try {
+      return renderOnce(w, style, widthMm);
+    } finally {
+      spent += Date.now() - t0;
+    }
+  };
+  function renderOnce(w: number, style?: FigureStylePreset, widthMm?: number): string {
     let memo: Map<string, number> | undefined;
     if (style && widthMm !== undefined) {
       const key = `${style.id}@${widthMm}`;
@@ -117,7 +137,7 @@ export function figureRenderer(compute: () => string | undefined | null): (w: nu
     seqCounter.clear();
     const svg = withFigCtx({ width: w, bw: style?.color === "bw", style: style ?? null, widthMm, memo }, () => compute() ?? "");
     return svg ? styleFigure(svg, style ?? null) : "";
-  };
+  }
 }
 
 // ---------------------------------------------------------------------------

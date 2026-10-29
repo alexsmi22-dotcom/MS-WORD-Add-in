@@ -2,7 +2,7 @@
  * The shared figure context and its style fitting (lib/figContext.ts), and the display fixes in the shared builders
  * that came with it (2026-10-28 figure fix). The whole-surface gate is figureStyleGate.test.ts; these pin the parts.
  */
-import { withFigCtx, currentFigCtx, figureRenderer, blackAndWhite, fitTextBand, styleFigure, supSubMarkup, withCellCtx } from "../figContext";
+import { withFigCtx, currentFigCtx, figureRenderer, RENDER_BUDGET_MESSAGE, blackAndWhite, fitTextBand, styleFigure, supSubMarkup, withCellCtx } from "../figContext";
 import { getPreset, nonBlackWhitePaints, measureSvgText } from "../figureStyle";
 import { withFinFig, currentFinFig, finPlotSvg } from "../financeFigures";
 import { buildPlotSvg, dateTickLabel } from "../plot";
@@ -153,5 +153,24 @@ describe("display fixes in the shared builders", () => {
     expect(markFor(b(0.0494), 0.05)).toBe("*"); // prints 0.049
     expect(markFor(b(0.0496), 0.05)).toBe("ns"); // prints 0.050: "at the 5% boundary" in the text
     expect(markFor(b(0.0004), 0.05)).toBe("***");
+  });
+});
+
+describe("the re-render time budget (a style fit never freezes Word on a slow calculator)", () => {
+  test("after RENDER_BUDGET_MS of recomputing, the renderer refuses with a message naming the remedy", () => {
+    let clock = 0;
+    const spy = jest.spyOn(Date, "now").mockImplementation(() => clock);
+    try {
+      const render = figureRenderer(() => {
+        clock += 1000; // each recompute "takes" one second
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>';
+      });
+      expect(render(400)).toContain("<svg");
+      expect(render(400)).toContain("<svg");
+      expect(render(400)).toContain("<svg"); // 3 s spent, past the 2.5 s budget
+      expect(() => render(400)).toThrow(RENDER_BUDGET_MESSAGE);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

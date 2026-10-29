@@ -155,10 +155,8 @@ const ALLOWANCES = {
   // to "Europe, …", and the shorter label fits. The legend is still drawn (all
   // five series names are in the figure); the finding went because it was fixed.
 
-  // spectraChart.ts — a JCAMP-DX file's own title is placed unmeasured and
-  // untruncated, so a real instrument title (which routinely carries sample,
-  // technique and resolution) runs 36 px past a 380 px frame.
-  "jcamp measured ir": ['CLIPPED  "Acetylsalicylic acid, KBr " runs outside the 380x240 canvas'],
+  // "jcamp measured ir" REMOVED 2026-10-28: plot.ts now wraps a long title onto
+  // two lines (figure-style fix), so the JCAMP-DX file's own title fits the frame.
 
   // beamChart.ts — a reaction/moment value label is drawn on the diagram at the
   // point it annotates, with no offset away from the shear or moment curve, so

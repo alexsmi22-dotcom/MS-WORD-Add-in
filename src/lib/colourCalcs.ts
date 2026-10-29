@@ -673,7 +673,7 @@ const adaptCalc: ColourCalc = {
       ],
       label: `Corresponding colour under ${dst}`,
     });
-    lines.push({ math: "XYZ_d = M^(-1) D M XYZ_s", fallback: "XYZd = M⁻¹·D·M·XYZs, D = diag(ρd/ρs, γd/γs, βd/βs) from the two whites' cone responses" });
+    lines.push({ math: "XYZ_d = M^-1 D M XYZ_s", fallback: "XYZd = M⁻¹·D·M·XYZs, D = diag(ρd/ρs, γd/γs, βd/βs) from the two whites' cone responses" });
     lines.push(
       "Assumes complete adaptation (D = 1) and the von Kries form: each cone-like channel is scaled by the ratio of the two whites. This predicts the corresponding colour, i.e. how the eye discounts the light; " +
         "it is NOT what the sample measures under the other illuminant. For that, measure its spectrum and compute under the new illuminant (Spectral reflectance to colour): two samples that match under one light can stop matching under another (metamerism), and no adaptation transform shows it.",

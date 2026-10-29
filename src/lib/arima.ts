@@ -49,8 +49,8 @@ export const ARIMA_MAX_H = 200;
 /** BFGS iterations per start before the fit is refused as not converged. */
 export const ARIMA_MAX_ITER = 400;
 /**
- * Likelihood work allowed per fit, in estimated nanoseconds (about 2 s in the test runner), charged per evaluation for
- * the work it actually did (evalCostNs): the steps before the filter's covariance settles cost O(r²) each, the rest
+ * Likelihood work allowed per fit, in estimated nanoseconds (about 1.9 s at the review's lighter load), charged per
+ * evaluation for the work it actually did (evalCostNs): the steps before the filter's covariance settles cost O(r²) each, the rest
  * O(r), plus the dense Lyapunov solve for the stationary start and a fixed cost per evaluation. Charging a flat N·r²
  * was wrong both ways: near an MA unit root the covariance never settles (ARIMA(1, 1, 1) on 100,000 rows of noise ran
  * for 140 s), and at high orders on short series the r² × r² solve dominates (ARIMA(5, 0, 5) on 60 rows ran for 16 s).

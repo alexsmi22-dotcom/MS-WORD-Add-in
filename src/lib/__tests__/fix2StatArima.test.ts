@@ -1,8 +1,8 @@
 /**
  * Stats fix round 2, MAJOR 6 (reviewer S): ARIMA computed for 2.3 s and then refused on a 3 s wall clock, so the same
- * fit could print on one machine and refuse on a slower one. Now no clock: a deterministic work charge (recalibrated
- * on 300 timed fits) with an up-front refusal from the typical need (15·k³ evaluations), and the filter's Math calls as
- * module constants (5× faster in the test runner).
+ * fit could print on one machine and refuse on a slower one. Now no clock: a deterministic work charge with an up-front
+ * refusal (recalibrated in fix round 3, when the up-front need became 4·k³ evaluations), and the filter's Math calls
+ * as module constants (5× faster in the test runner).
  */
 import { budget } from "./timeBudget";
 import * as fs from "fs";

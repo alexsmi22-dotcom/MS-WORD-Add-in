@@ -154,12 +154,6 @@ export function bayesWithCi(se: number, sp: number, n1: number, n0: number, p: n
   };
 }
 
-/** Post-test probability from a pre-test probability and a likelihood ratio (odds form of Bayes' rule). */
-export function postTest(pre: number, lr: number): number {
-  const odds = (pre / (1 - pre)) * lr;
-  return odds / (1 + odds);
-}
-
 // ---------------------------------------------------------------------------------------------------------------
 // ROC
 

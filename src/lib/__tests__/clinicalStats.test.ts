@@ -19,7 +19,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { propCi, binomTwoSided } from "../clinicalCore";
-import { diag2x2, bayesWithCi, postTest, rocFit, delongPaired, budererN, midranks } from "../diagnosticAccuracy";
+import { diag2x2, bayesWithCi, bayesValues, rocFit, delongPaired, budererN, midranks } from "../diagnosticAccuracy";
 import { epi2x2, altmanNnt, rateRatio } from "../epi2x2";
 import { cohenKappa, blandAltman, iccFit } from "../agreement";
 import { countEffect, mantelHaenszel, metaAnalyze, eggerTest, type CountStudy } from "../metaAnalysis";
@@ -98,9 +98,9 @@ describe("diagnostic accuracy against statsmodels and the closed forms", () => {
     expect(d.spec.est.toFixed(2)).toBe("0.63");
   });
 
-  test("post-test probability by the odds form", () => {
-    close(postTest(0.25, 4), 4 / 7, 1e-15);
-    close(postTest(0.5, 1), 0.5, 1e-15);
+  test("post-test probability by Bayes: odds form and PPV agree (Se 0.8, Sp 0.8, pre 0.25: LR+ 4, post 4/7)", () => {
+    close(bayesValues(0.8, 0.8, 0.25).ppv!, 4 / 7, 1e-15);
+    close(bayesValues(0.5, 0.5, 0.5).ppv!, 0.5, 1e-15);
   });
 
   test("Buderer sample sizes", () => {

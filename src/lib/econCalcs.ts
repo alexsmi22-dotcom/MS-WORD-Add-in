@@ -401,16 +401,6 @@ export function logitReading(model: FittedModel, binary?: ReadonlySet<string>): 
 }
 
 /**
- * The step of x an average marginal effect is quoted per (lib/probChange.ts, the one rule): 1 while |AME| prints
- * below 1, else the largest power of ten below 1 that brings |AME|·step under 0.1. `scaledText` is |AME|·step at
- * 4 decimals (fmtFixed), the number the reading and the text line both print.
- */
-export function ameScale(ame: number, binary = false): { step: number; stepText: string; scaledText: string } {
-  const sc = probChangeStep(ame, { binary });
-  return { step: sc.step, stepText: sc.stepText, scaledText: sc.scaledText };
-}
-
-/**
  * The text line behind a rescaled AME in the reading, so its number is on screen: "Per 0.01 of x: the average marginal
  * effect −1.3310 × 0.01 = −0.0133 …". Empty when the reading quotes the AME per unit (or quotes none).
  */
